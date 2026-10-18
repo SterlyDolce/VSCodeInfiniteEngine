@@ -1,10 +1,14 @@
 {
-  "name": "project-hawkeye",
-  "displayName": "Project Hawkeye",
+  "name": "infinite-engine",
+  "displayName": "Infinite Engine",
   "description": "Infinite Engine — a powerful, extensible 3D game engine and visual scripting environment built directly into Visual Studio Code.",
   "version": "0.0.1",
   "publisher": "sterlyd",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SterlyDolce/VSCodeInfiniteEngine.git"
+  },
   "engines": {
     "vscode": "^1.140.0"
   },
@@ -15,7 +19,6 @@
   ],
   "keywords": [
     "infinite engine",
-    "project hawkeye",
     "game engine",
     "3d editor",
     "threejs",
