@@ -1,0 +1,47 @@
+html,
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	
+}
+
+#viewport {
+	width: 100%;
+	height: 100%;
+}
+
+#preview-viewport {
+	width: 250px;
+	height: 130px;
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	pointer-events: none;
+	background-color: #000;
+	border: 2px solid var(--vscode-focusBorder);
+	z-index: 100;
+	display: none;
+}
+
+#preview-viewport.visible {
+	display: block;
+}
+
+#view-gizmo {
+	position: absolute;
+	bottom: 16px;
+	left: 16px;
+	width: 70px;
+	height: 70px;
+	z-index: 100;
+}
+
+
+#viewport canvas, #preview-viewport canvas, #view-gizmo canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+}

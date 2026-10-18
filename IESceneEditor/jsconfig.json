@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "checkJs": true,
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "Node",
+        "lib": [
+            "ES2022",
+            "DOM",
+            "DOM.Iterable"
+        ]
+    },
+    "include": [
+        "*.mjs"
+    ]
+}

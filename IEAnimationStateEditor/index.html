@@ -1,0 +1,51 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'none';
+        style-src {{CSP_SOURCE}} 'unsafe-inline';
+        script-src {{CSP_SOURCE}} 'nonce-{{NONCE}}';
+    ">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <link rel="stylesheet" href="{{STYLE_URI}}">
+
+    <title>Infinite Animation State Editor</title>
+</head>
+
+<body>
+    <div id="app">
+        <section id="graph-area">
+            <canvas id="graph" tabindex="0"></canvas>
+
+			<div id="toolbar">
+				<div class="toolbar-actions toolbar-actions-start">
+					<button id="back-machine" type="button" hidden>← State Machine</button>
+				</div>
+				<span id="graph-title">Animation State</span>
+				<div class="toolbar-actions toolbar-actions-end">
+					<button id="fit" type="button">Fit</button>
+					<button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+					<button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+				</div>
+			</div>
+
+			<div id="status">Loading...</div>
+			<div id="zoom-label">85%</div>
+        </section>
+    </div>
+
+    <script
+        nonce="{{NONCE}}"
+        type="module"
+        src="{{SCRIPT_URI}}">
+    </script>
+</body>
+
+</html>

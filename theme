@@ -1,0 +1,225 @@
+/* General */
+--vscode-foreground
+--vscode-disabledForeground
+--vscode-descriptionForeground
+--vscode-errorForeground
+
+/* Editor */
+--vscode-editor-background
+--vscode-editor-foreground
+--vscode-editorLineNumber-foreground
+--vscode-editorLineNumber-activeForeground
+--vscode-editorCursor-foreground
+--vscode-editor-selectionBackground
+--vscode-editor-selectionForeground
+--vscode-editor-inactiveSelectionBackground
+--vscode-editor-wordHighlightBackground
+--vscode-editor-wordHighlightStrongBackground
+--vscode-editor-findMatchBackground
+--vscode-editor-findMatchHighlightBackground
+--vscode-editor-hoverHighlightBackground
+--vscode-editorWidget-background
+--vscode-editorWidget-foreground
+--vscode-editorWidget-border
+--vscode-editorWidget-resizeBorder
+
+/* Panels / Sidebar */
+--vscode-panel-background
+--vscode-panel-border
+--vscode-panelTitle-activeForeground
+--vscode-panelTitle-inactiveForeground
+--vscode-panelTitle-activeBorder
+
+--vscode-sideBar-background
+--vscode-sideBar-foreground
+--vscode-sideBar-border
+--vscode-sideBarTitle-foreground
+--vscode-sideBarSectionHeader-background
+--vscode-sideBarSectionHeader-foreground
+--vscode-sideBarSectionHeader-border
+
+/* Activity Bar */
+--vscode-activityBar-background
+--vscode-activityBar-foreground
+--vscode-activityBar-inactiveForeground
+--vscode-activityBar-border
+--vscode-activityBarBadge-background
+--vscode-activityBarBadge-foreground
+
+/* Inputs */
+--vscode-input-background
+--vscode-input-foreground
+--vscode-input-border
+--vscode-input-placeholderForeground
+
+--vscode-inputOption-activeBackground
+--vscode-inputOption-activeBorder
+--vscode-inputOption-activeForeground
+--vscode-inputOption-hoverBackground
+
+/* Dropdowns */
+--vscode-dropdown-background
+--vscode-dropdown-foreground
+--vscode-dropdown-border
+--vscode-dropdown-listBackground
+
+/* Buttons */
+--vscode-button-background
+--vscode-button-foreground
+--vscode-button-border
+--vscode-button-hoverBackground
+
+--vscode-button-secondaryBackground
+--vscode-button-secondaryForeground
+--vscode-button-secondaryHoverBackground
+
+/* Checkboxes */
+--vscode-checkbox-background
+--vscode-checkbox-foreground
+--vscode-checkbox-border
+--vscode-checkbox-selectBackground
+--vscode-checkbox-selectBorder
+
+/* Lists / TreeViews */
+--vscode-list-activeSelectionBackground
+--vscode-list-activeSelectionForeground
+--vscode-list-activeSelectionIconForeground
+
+--vscode-list-inactiveSelectionBackground
+--vscode-list-inactiveSelectionForeground
+
+--vscode-list-hoverBackground
+--vscode-list-hoverForeground
+
+--vscode-list-focusBackground
+--vscode-list-focusForeground
+--vscode-list-focusOutline
+
+--vscode-list-highlightForeground
+--vscode-list-dropBackground
+
+/* Tree */
+--vscode-tree-indentGuidesStroke
+--vscode-tree-inactiveIndentGuidesStroke
+--vscode-tree-tableColumnsBorder
+--vscode-tree-tableOddRowsBackground
+
+/* Tabs */
+--vscode-tab-activeBackground
+--vscode-tab-activeForeground
+--vscode-tab-activeBorder
+--vscode-tab-activeBorderTop
+
+--vscode-tab-inactiveBackground
+--vscode-tab-inactiveForeground
+
+--vscode-tab-hoverBackground
+--vscode-tab-hoverForeground
+--vscode-tab-border
+
+/* Title Bar */
+--vscode-titleBar-activeBackground
+--vscode-titleBar-activeForeground
+--vscode-titleBar-inactiveBackground
+--vscode-titleBar-inactiveForeground
+--vscode-titleBar-border
+
+/* Menu */
+--vscode-menu-background
+--vscode-menu-foreground
+--vscode-menu-selectionBackground
+--vscode-menu-selectionForeground
+--vscode-menu-separatorBackground
+--vscode-menu-border
+
+/* Toolbar */
+--vscode-toolbar-hoverBackground
+--vscode-toolbar-hoverOutline
+--vscode-toolbar-activeBackground
+
+/* Badges */
+--vscode-badge-background
+--vscode-badge-foreground
+
+/* Notifications */
+--vscode-notifications-background
+--vscode-notifications-foreground
+--vscode-notifications-border
+--vscode-notificationLink-foreground
+
+/* Scrollbar */
+--vscode-scrollbar-shadow
+--vscode-scrollbarSlider-background
+--vscode-scrollbarSlider-hoverBackground
+--vscode-scrollbarSlider-activeBackground
+
+/* Focus / Borders */
+--vscode-focusBorder
+--vscode-contrastBorder
+--vscode-contrastActiveBorder
+
+/* Text Links */
+--vscode-textLink-foreground
+--vscode-textLink-activeForeground
+
+/* Text blocks */
+--vscode-textBlockQuote-background
+--vscode-textBlockQuote-border
+--vscode-textCodeBlock-background
+
+/* Settings-style UI */
+--vscode-settings-headerForeground
+--vscode-settings-modifiedItemIndicator
+--vscode-settings-dropdownBackground
+--vscode-settings-dropdownForeground
+--vscode-settings-dropdownBorder
+--vscode-settings-checkboxBackground
+--vscode-settings-checkboxForeground
+--vscode-settings-checkboxBorder
+--vscode-settings-textInputBackground
+--vscode-settings-textInputForeground
+--vscode-settings-textInputBorder
+--vscode-settings-numberInputBackground
+--vscode-settings-numberInputForeground
+--vscode-settings-numberInputBorder
+
+/* Git / status colors */
+--vscode-gitDecoration-addedResourceForeground
+--vscode-gitDecoration-modifiedResourceForeground
+--vscode-gitDecoration-deletedResourceForeground
+--vscode-gitDecoration-renamedResourceForeground
+--vscode-gitDecoration-untrackedResourceForeground
+--vscode-gitDecoration-ignoredResourceForeground
+--vscode-gitDecoration-conflictingResourceForeground
+
+/* Status Bar */
+--vscode-statusBar-background
+--vscode-statusBar-foreground
+--vscode-statusBar-border
+--vscode-statusBar-debuggingBackground
+--vscode-statusBar-debuggingForeground
+--vscode-statusBarItem-hoverBackground
+--vscode-statusBarItem-activeBackground
+
+/* Progress */
+--vscode-progressBar-background
+
+/* Peek View */
+--vscode-peekView-border
+--vscode-peekViewEditor-background
+--vscode-peekViewEditor-matchHighlightBackground
+--vscode-peekViewResult-background
+--vscode-peekViewResult-selectionBackground
+--vscode-peekViewTitle-background
+
+/* Breadcrumbs */
+--vscode-breadcrumb-background
+--vscode-breadcrumb-foreground
+--vscode-breadcrumb-focusForeground
+--vscode-breadcrumb-activeSelectionForeground
+
+/* Keybindings */
+--vscode-keybindingLabel-background
+--vscode-keybindingLabel-foreground
+--vscode-keybindingLabel-border
+--vscode-keybindingLabel-bottomBorder

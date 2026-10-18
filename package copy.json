@@ -1,0 +1,271 @@
+{
+  "name": "project-hawkeye",
+  "displayName": "Project Hawkeye",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "infinite.createProject",
+        "title": "Infinite Engine: Create Project"
+      },
+      {
+        "command": "infinite.addActor",
+        "title": "Add Actor",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.addComponent",
+        "title": "Add Component",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.deleteComponent",
+        "title": "Delete Component",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.createVariable",
+        "title": "New Variable",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.createFunction",
+        "title": "New Function",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.deleteActor",
+        "title": "Delete Actor",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.deleteVariable",
+        "title": "Delete Variable",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.addAnimationLayer",
+        "title": "Add Animation Layer",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.addAnimationParameter",
+        "title": "Add Animation Parameter",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.deleteAnimationLayer",
+        "title": "Delete Animation Layer",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.deleteAnimationParameter",
+        "title": "Delete Animation Parameter",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.selectActorAssetComponent",
+        "title": "Infinite: Select Actor Asset Component"
+      },
+      {
+        "command": "infinite.play",
+        "title": "Infinite Engine: Play",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "infinite.pause",
+        "title": "Infinite Engine: Pause",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "infinite.continue",
+        "title": "Infinite Engine: Continue",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "infinite.stop",
+        "title": "Infinite Engine: Stop",
+        "icon": "$(debug-stop)",
+        "enablement": "infinite.isPlaying"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "infinite.sceneEditor",
+        "displayName": "Infinite Scene Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.iescene"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "infinite.assetEditor",
+        "displayName": "Infinite Asset Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.ieasset"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "infinite.modelViewer",
+        "displayName": "Infinite Model Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.glb"
+          },
+          {
+            "filenamePattern": "*.gltf"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "infinite-properties",
+          "title": "Properties",
+          "icon": "images/outliner.png"
+        }
+      ]
+    },
+    "views": {
+      "infinite-properties": [
+        {
+          "type": "webview",
+          "id": "infinite.properties",
+          "name": "Properties",
+          "icon": "images/outliner.png"
+        }
+      ],
+      "explorer": [
+        {
+          "id": "infinite.outliner",
+          "name": "Infinite Outliner",
+          "icon": "images/outliner.png"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "infinite.addActor",
+          "when": "view == infinite.outliner && viewItem == infiniteWorldActor",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.addComponent",
+          "when": "view == infinite.outliner && viewItem == infiniteActorAsset",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteComponent",
+          "when": "view == infinite.outliner && viewItem == infiniteActorAssetComponent",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteActor",
+          "when": "view == infinite.outliner && viewItem == infiniteActor",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteVariable",
+          "when": "view == infinite.outliner && viewItem == infiniteVariable",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.createVariable",
+          "when": "view == infinite.outliner && viewItem == infiniteVariables",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.createFunction",
+          "when": "view == infinite.outliner && viewItem == infiniteFunctions",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.addAnimationLayer",
+          "when": "viewItem == animationLayers",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.addAnimationParameter",
+          "when": "viewItem == animationParameters",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteAnimationLayer",
+          "when": "viewItem == animationLayerItem",
+          "group": "inline@2"
+        },
+        {
+          "command": "infinite.deleteAnimationParameter",
+          "when": "viewItem == animationParameterItem",
+          "group": "inline@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "infinite.play",
+          "when": "infinite.projectOpen && !infinite.isPlaying && !infinite.isPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "infinite.pause",
+          "when": "infinite.projectOpen && infinite.isPlaying && !infinite.isPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "infinite.continue",
+          "when": "infinite.projectOpen && infinite.isPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "infinite.stop",
+          "when": "infinite.projectOpen",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "infinite.addActor",
+          "when": "resourceExtname == .ieasset && infinite.projectOpen",
+          "group": "infinite@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.140.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "eslint": "^10.5.0"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  }
+}

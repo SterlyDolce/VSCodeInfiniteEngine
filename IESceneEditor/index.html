@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="{{STYLE_URI}}">
+</head>
+
+<body>
+    <div id="viewport"></div>
+    <div id="preview-viewport"></div>
+    <div id="view-gizmo"></div>
+
+    <script>
+        window.INFINITE_ASSETS = {
+            cameraModel: '{{CAMERA_MODEL_URI}}',
+            viewGizmoModel: '{{VIEW_GIZMO_MODEL_URI}}',
+			rapierModule: '{{RAPIER_URI}}'
+
+        };
+    </script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "{{THREE_URI}}",
+				"three/addons/": "{{THREE_ADDONS_URI}}/"
+            }
+        }
+    </script>
+
+    <script type="module" src="{{SCRIPT_URI}}"></script>
+</body>
+
+</html>

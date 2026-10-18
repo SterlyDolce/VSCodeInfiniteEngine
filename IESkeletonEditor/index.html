@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}}; script-src 'nonce-{{NONCE}}' {{CSP_SOURCE}};">
+    <link rel="stylesheet" href="{{STYLE_URI}}">
+    <script type="importmap" nonce="{{NONCE}}">
+    {"imports":{"three":"{{THREE_URI}}","three/addons/":"{{THREE_ADDONS_URI}}"}}
+    </script>
+    <title>Infinite Skeleton Editor</title>
+</head>
+<body>
+    <div id="app">
+        <header>
+            <div><strong id="asset-name">Skeleton</strong><span id="summary">Loading…</span></div>
+            <nav>
+                <button id="grid">Grid</button>
+                <button id="fit">Fit</button>
+                <button id="reload">Reload</button>
+                <button id="save" disabled>Save Changes</button>
+            </nav>
+        </header>
+        <main>
+            <aside class="hierarchy-panel">
+                <h2>HIERARCHY</h2>
+                <div id="hierarchy"></div>
+            </aside>
+            <section id="viewport"></section>
+            <aside class="inspector">
+                <h2>NODE INSPECTOR</h2>
+                <div id="empty">Select a skeleton node.</div>
+                <div id="fields" hidden>
+                    <label>Name<input id="node-name" type="text"></label>
+                    <div class="metadata"><span>Type</span><b id="node-type"></b></div>
+                    <div class="metadata"><span>Bone Index</span><b id="bone-index"></b></div>
+                    <h3>POSITION</h3><div id="position" class="vector"></div>
+                    <h3>QUATERNION</h3><div id="quaternion" class="vector four"></div>
+                    <h3>SCALE</h3><div id="scale" class="vector"></div>
+                    <h3>INVERSE BIND MATRIX</h3><pre id="inverse">Not a skin bone</pre>
+                </div>
+            </aside>
+        </main>
+        <footer id="status">Loading skeleton…</footer>
+    </div>
+    <script nonce="{{NONCE}}" type="module" src="{{SCRIPT_URI}}"></script>
+</body>
+</html>

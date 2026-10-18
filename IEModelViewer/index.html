@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; connect-src {{cspSource}} blob:; worker-src blob:;">
+
+
+    <link rel="stylesheet" href="{{styleUri}}">
+    <title>Infinite Model Viewer</title>
+</head>
+
+<body>
+    <header class="toolbar">
+        <span id="model-name">Model Viewer</span>
+        <button id="create-assets" disabled>Create IEAssets</button>
+    </header>
+
+    <main id="viewport"></main>
+
+
+    <div id="animation-toolbar">
+        <span class="animation-label">Animation</span>
+
+        <select id="animation-select" disabled>
+            <option value="">No animations</option>
+        </select>
+
+        <button id="animation-play" disabled title="Play animation">
+            ▶
+        </button>
+
+        <button id="animation-stop" disabled title="Stop animation">
+            ■
+        </button>
+
+        <span id="animation-current-time">0:00</span>
+
+        <input id="animation-timeline" type="range" min="0" max="1" step="0.001" value="0" disabled>
+
+        <span id="animation-duration">0:00</span>
+    </div>
+
+
+    <div id="status">Loading model...</div>
+
+    <script type="importmap" nonce="{{nonce}}">
+{
+    "imports": {
+        "three": "{{threeUri}}",
+        "three/addons/": "{{addonsUri}}/"
+    }
+}
+</script>
+
+    <script type="module" src="{{scriptUri}}"></script>
+</body>
+
+</html>

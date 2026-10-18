@@ -1,0 +1,461 @@
+{
+  "name": "project-hawkeye",
+  "displayName": "Project Hawkeye",
+  "description": "Infinite Engine — a powerful, extensible 3D game engine and visual scripting environment built directly into Visual Studio Code.",
+  "version": "0.0.1",
+  "publisher": "sterlyd",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "infinite engine",
+    "project hawkeye",
+    "game engine",
+    "3d editor",
+    "threejs",
+    "visual scripting",
+    "node editor",
+    "game development",
+    "scene editor",
+    "actor components"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "infinite.refreshAssets",
+        "title": "Refresh Assets",
+        "category": "Infinite Engine",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "infinite.createProject",
+        "title": "Create Project",
+        "category": "Infinite Engine",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "infinite.createAsset",
+        "title": "Create Asset",
+        "category": "Infinite Engine",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "infinite.addActor",
+        "title": "Add Actor",
+        "category": "Infinite Engine",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.addComponent",
+        "title": "Add Component",
+        "category": "Infinite Engine",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.deleteComponent",
+        "title": "Delete Component",
+        "category": "Infinite Engine",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.createVariable",
+        "title": "New Variable",
+        "category": "Infinite Engine",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.createFunction",
+        "title": "New Function",
+        "category": "Infinite Engine",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.deleteActor",
+        "title": "Delete Actor",
+        "category": "Infinite Engine",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.deleteVariable",
+        "title": "Delete Variable",
+        "category": "Infinite Engine",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.deleteFunction",
+        "title": "Delete Function",
+        "category": "Infinite Engine",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.addAnimationLayer",
+        "title": "Add Animation Layer",
+        "category": "Infinite Engine",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.addAnimationParameter",
+        "title": "Add Animation Parameter",
+        "category": "Infinite Engine",
+        "icon": "$(add)"
+      },
+      {
+        "command": "infinite.deleteAnimationLayer",
+        "title": "Delete Animation Layer",
+        "category": "Infinite Engine",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.deleteAnimationParameter",
+        "title": "Delete Animation Parameter",
+        "category": "Infinite Engine",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "infinite.selectActorAssetComponent",
+        "title": "Select Actor Asset Component",
+        "category": "Infinite Engine"
+      },
+      {
+        "command": "infinite.play",
+        "title": "Play",
+        "category": "Infinite Engine",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "infinite.pause",
+        "title": "Pause",
+        "category": "Infinite Engine",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "infinite.continue",
+        "title": "Continue",
+        "category": "Infinite Engine",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "infinite.stop",
+        "title": "Stop",
+        "category": "Infinite Engine",
+        "icon": "$(debug-stop)",
+        "enablement": "infinite.isPlaying"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "infinite.sceneEditor",
+        "displayName": "Infinite Scene Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.iescene"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "infinite.assetEditor",
+        "displayName": "Infinite Asset Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.ieasset"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "infinite.modelViewer",
+        "displayName": "Infinite Model Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.glb"
+          },
+          {
+            "filenamePattern": "*.gltf"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "infinite-engine",
+          "title": "Infinite Engine",
+          "icon": "images/infinite.svg"
+        }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "infinite-properties",
+          "title": "Properties",
+          "icon": "images/outliner.png"
+        }
+      ]
+    },
+    "views": {
+      "infinite-engine": [
+        {
+          "type": "webview",
+          "id": "infinite.projectManager",
+          "name": "Projects",
+          "icon": "images/infinite.svg"
+        },
+        {
+          "id": "infinite.assetExplorer",
+          "name": "Assets",
+          "icon": "$(files)"
+        },
+        {
+          "id": "infinite.outliner",
+          "name": "Infinite Outliner",
+          "icon": "images/outliner.png"
+        }
+      ],
+      "infinite-properties": [
+        {
+          "type": "webview",
+          "id": "infinite.properties",
+          "name": "Properties",
+          "icon": "images/outliner.png"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "infinite.addActor",
+          "when": "view == infinite.outliner && viewItem == infiniteWorldActor",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.addComponent",
+          "when": "view == infinite.outliner && viewItem == infiniteActorAsset",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteComponent",
+          "when": "view == infinite.outliner && viewItem == infiniteActorAssetComponent",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteActor",
+          "when": "view == infinite.outliner && viewItem == infiniteActor",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteVariable",
+          "when": "view == infinite.outliner && viewItem == infiniteVariable",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteFunction",
+          "when": "view == infinite.outliner && viewItem == infiniteFunction",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.createVariable",
+          "when": "view == infinite.outliner && viewItem == infiniteVariables",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.createFunction",
+          "when": "view == infinite.outliner && viewItem == infiniteFunctions",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.addAnimationLayer",
+          "when": "viewItem == animationLayers",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.addAnimationParameter",
+          "when": "viewItem == animationParameters",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.deleteAnimationLayer",
+          "when": "viewItem == animationLayerItem",
+          "group": "inline@2"
+        },
+        {
+          "command": "infinite.deleteAnimationParameter",
+          "when": "viewItem == animationParameterItem",
+          "group": "inline@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "infinite.play",
+          "when": "infinite.projectOpen && !infinite.isPlaying && !infinite.isPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "infinite.pause",
+          "when": "infinite.projectOpen && infinite.isPlaying && !infinite.isPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "infinite.continue",
+          "when": "infinite.projectOpen && infinite.isPaused",
+          "group": "navigation@1"
+        },
+        {
+          "command": "infinite.stop",
+          "when": "infinite.projectOpen",
+          "group": "navigation@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "infinite.refreshAssets",
+          "when": "view == infinite.assetExplorer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "infinite.createAsset",
+          "when": "view == infinite.assetExplorer",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "infinite.createAsset",
+          "when": "explorerResourceIsFolder && resourceFilename == Assets && infinite.projectOpen",
+          "group": "infinite@1"
+        },
+        {
+          "command": "infinite.addActor",
+          "when": "resourceExtname == .ieasset && infinite.projectOpen",
+          "group": "infinite@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "infinite.addActor",
+          "when": "infinite.projectOpen"
+        },
+        {
+          "command": "infinite.addComponent",
+          "when": "infinite.projectOpen"
+        },
+        {
+          "command": "infinite.play",
+          "when": "infinite.projectOpen && !infinite.isPlaying"
+        },
+        {
+          "command": "infinite.pause",
+          "when": "infinite.isPlaying && !infinite.isPaused"
+        },
+        {
+          "command": "infinite.continue",
+          "when": "infinite.isPaused"
+        },
+        {
+          "command": "infinite.stop",
+          "when": "infinite.isPlaying"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Infinite Engine",
+      "properties": {
+        "infinite.autoLoadProject": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically load an Infinite Engine project when opening a workspace."
+        },
+        "infinite.autoSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save changes to scenes and assets."
+        },
+        "infinite.editor.showGrid": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display the infinite grid in the scene editor."
+        },
+        "infinite.editor.backgroundColor": {
+          "type": "string",
+          "default": "#000000",
+          "description": "Background color of the scene editor viewport."
+        },
+        "infinite.editor.cameraSpeed": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.1,
+          "maximum": 10,
+          "description": "Controls scene editor camera movement speed."
+        },
+        "infinite.editor.showOutliner": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Infinite Engine Outliner."
+        },
+        "infinite.script.autoCompile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically compile visual scripts when assets are saved."
+        },
+        "infinite.script.showPinTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show pin types in visual scripting nodes."
+        },
+        "infinite.runtime.showLogs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display runtime logs in the Infinite Engine output channel."
+        },
+        "infinite.runtime.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically launch gameplay when opening a project."
+        },
+        "infinite.assets.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically scan the Assets directory for .ieasset files."
+        },
+        "infinite.assets.cacheEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Cache loaded Infinite Engine assets for improved performance."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.140.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.0.0",
+    "eslint": "^10.5.0",
+    "globals": "^16.4.0"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  }
+}
