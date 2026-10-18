@@ -1,45 +1,44 @@
-# Infinite Engine
+<p align="center">
+  <img src="https://raw.githubusercontent.com/SterlyDolce/VSCodeInfiniteEngine/main/images/infinite-color.png" alt="Infinite Engine logo" width="160">
+</p>
 
-Infinite Engine is a 3D game-development environment built into Visual Studio Code. It combines scene editing, reusable actor assets, physics, animation state machines, visual scripting, materials, model importing, and an in-editor runtime in one workspace.
+<h1 align="center">Infinite Engine</h1>
 
-> Infinite Engine is under active development. Asset formats and editor behavior may continue to evolve.
+<p align="center">
+  Build, edit, and run 3D games without leaving Visual Studio Code.
+</p>
 
-## Features
+Infinite Engine turns VS Code into an integrated 3D game-development environment. Compose scenes, create reusable actors, build gameplay with visual scripts, configure physics and animation, import models, and run your project from the editor.
 
-- Edit `.iescene` worlds in a real-time 3D viewport.
-- Create reusable `.ieasset` actors and compose them from components.
-- Import GLTF and GLB models, including geometry, materials, textures, skeletons, and animations.
-- Build gameplay with node-based visual scripts.
-- Create layered animation state machines, transitions, and 1D/2D blend spaces.
-- Simulate rigid bodies and colliders with Rapier physics.
-- Configure cameras and spring arms for third-person gameplay.
-- Run, pause, continue, and stop the current project without leaving VS Code.
+> **Early release:** Infinite Engine is under active development. Asset formats and editor behavior may evolve between versions. Keep backups of important projects.
+
+## Highlights
+
+- **Real-time scene editing** — Arrange actors in a 3D viewport, edit transforms and components, manage scene hierarchies, and preview the active camera.
+- **Reusable actor assets** — Build `.ieasset` actors from meshes, scripts, cameras, lights, physics, spring arms, skies, fog, ambient light, and volumetric clouds.
+- **Visual scripting** — Connect execution, input, movement, physics, animation, and utility nodes to create gameplay visually.
+- **Animation state machines** — Create layered animation graphs with parameters, transitions, crossfades, masks, and 1D or 2D blend spaces.
+- **Physics powered by Rapier** — Configure dynamic, fixed, and kinematic rigid bodies with box, sphere, and capsule colliders.
+- **GLTF and GLB workflows** — Preview and import models with geometry, materials, textures, skeletons, and animations.
+- **Integrated runtime** — Play, pause, continue, and stop the current project directly from VS Code.
 
 ## Requirements
 
 - Visual Studio Code `1.140.0` or newer
-- Node.js and npm for extension development
-- A workspace folder for the game project
+- An open workspace folder for your Infinite Engine project
 
-## Getting started
+Node.js and npm are only required when developing the extension from source.
 
-### Run the extension from source
+## Quick start
 
-```sh
-npm install
-```
+1. Install **Infinite Engine** from the Visual Studio Marketplace.
+2. Open a folder in VS Code.
+3. Select the **Infinite Engine** icon in the Activity Bar.
+4. Choose **Create Project**.
+5. Open `Scenes/Main.iescene` to begin editing the generated scene.
+6. Use the editor title-bar controls to play, pause, continue, or stop your project.
 
-Open this repository in VS Code and press `F5`. A new Extension Development Host window opens with Infinite Engine enabled.
-
-### Create a game project
-
-1. Open the **Infinite Engine** view in the Activity Bar.
-2. Select **Create Project**.
-3. Open `Scenes/Main.iescene` to edit the initial scene.
-4. Create assets from the Assets view or import a GLTF/GLB model.
-5. Use the editor title-bar controls to play, pause, continue, or stop the project.
-
-An Infinite Engine project starts with this structure:
+A new project uses the following structure:
 
 ```text
 MyProject/
@@ -51,122 +50,95 @@ MyProject/
 └── main.js
 ```
 
-`Infinite.ieproject` identifies the JavaScript entry point and the scene that starts when Play is pressed.
+`Infinite.ieproject` identifies the JavaScript entry point and the scene that opens when gameplay starts.
 
-## JavaScript runtime
-
-The default `main.js` extends the runtime `Game` class:
-
-```js
-const { Game } = require('@infinite/Runtime');
-
-class MyGame extends Game {
-	onBegin() {
-
-	}
-
-	onUpdate(deltaTime) {
-
-	}
-
-	onEnd() {
-
-	}
-}
-
-module.exports = MyGame;
-```
-
-- `onBegin()` runs once when gameplay starts.
-- `onUpdate(deltaTime)` runs every frame while gameplay is active.
-- `onEnd()` runs when gameplay stops.
-- `print(value)` writes to the **Infinite Engine** output channel during play.
-
-`@infinite/Runtime` is registered by the extension at runtime. Game projects should use this package alias instead of a relative path to the extension source.
-
-## Editors
+## Editors and workflows
 
 ### Scene Editor
 
-Open a `.iescene` file to arrange the world, select actors, edit transforms and components, and preview the active camera. Built-in actor types include actors, meshes, cameras, point lights, directional lights, spot lights, and environments.
-
-The Outliner represents the scene hierarchy. Drag an actor onto another actor to parent it, or move it back to the world root to unparent it.
+Open a `.iescene` file to edit a world in a real-time 3D viewport. The Outliner displays its hierarchy: drag an actor onto another actor to parent it, or move it back to the world root to unparent it. Built-in actor types include meshes, cameras, point lights, directional lights, spot lights, and environments.
 
 ### Actor Asset Editor
 
-Actor assets are reusable actor definitions. Available components include:
+Actor assets are reusable definitions composed from components. Component transforms are local to their actor or parent component, while each scene instance can apply its own transform without changing the source asset.
+
+Available components include:
 
 - Transform, mesh, script, camera, and spring arm
 - Rigid body and collider
 - Point, directional, and spot lights
 - Sky, fog, ambient light, and volumetric clouds
 
-Component transforms are local to the actor or their parent component. A scene instance can then apply its own actor transform without changing the source asset.
-
 ### Visual Script Editor
 
-Visual scripts contain nodes, links, variables, and functions. The editor includes execution flow, keyboard and mouse input, actor direction, player movement, physics, animation-state playback, and utility nodes.
+Visual scripts contain nodes, links, variables, and functions. Available nodes cover execution flow, keyboard and mouse input, actor direction, player movement, physics, animation-state playback, and common utilities.
 
-Input nodes expose dropdowns for supported keys and mouse buttons. Mouse Button provides `onClicked`, `onReleased`, and `isPressed` outputs. Actor Forward and Actor Right provide directions based on the current actor orientation.
-
-The Player Controller node supports:
-
-- Forward/right movement input
-- Walk and run speeds with acceleration and deceleration
-- Optional movement-facing rotation and rotation speed
-- Camera-relative movement
-- Jump input, jump speed, and grounded output
-
-For jumping, the controlled actor must have a dynamic rigid body, a collider, gravity enabled, and an unlocked vertical position. Feed a pressed-state boolean or key event into `jump`; the controller only applies jump velocity while grounded.
+The Player Controller node supports walk and run speeds, acceleration and deceleration, camera-relative movement, optional movement-facing rotation, jumping, and grounded state output.
 
 ### Animation State Editor
 
-Animation state assets support:
+Build animation state machines with:
 
 - Override and additive layers
 - Number, boolean, and trigger parameters
-- Animation states and 1D/2D blend spaces
+- Animation states and 1D or 2D blend spaces
 - Immediate, condition-based, and on-end transitions
 - Crossfade duration, exit time, and multiple transition conditions
 - Per-layer masks, weights, and enablement
 
-Select a transition to edit it in the main Properties panel. Save the asset with `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux.
+Select a transition to edit it in the Properties panel. Save with `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux.
 
-### Other asset editors
+### Asset tools
 
-The asset creator can create visual scripts, actors, geometry, materials, textures, skeletons, animations, and animation states. Infinite Engine also provides editors or previews for those asset types and an optional GLTF/GLB model viewer.
+Create visual scripts, actors, geometry, materials, textures, skeletons, animations, and animation states from the Assets view. Infinite Engine also includes dedicated editors or previews for these asset types and an optional GLTF/GLB model viewer.
 
-## Physics and camera setup
+## JavaScript runtime
 
-Rigid Body supports dynamic, fixed, and kinematic bodies. Collider shapes include box, sphere, and capsule. Body type and collider shape are selected from dropdown menus in Properties.
+The generated `main.js` extends the Infinite Engine `Game` class:
 
-For a typical third-person character:
+```js
+const { Game } = require('@infinite/Runtime');
 
-1. Add a capsule collider and dynamic rigid body to the actor.
-2. Lock unwanted rigid-body rotation axes so collisions do not tip the character.
-3. Add a Spring Arm and parent a Camera beneath it.
-4. Adjust the spring-arm transform and length to frame the character.
-5. Leave **Follow Actor Rotation** disabled for an independent camera, or enable it when the camera should inherit actor rotation.
+class MyGame extends Game {
+  onBegin() {
+    // Called once when gameplay starts.
+  }
 
-## Assets and scenes
+  onUpdate(deltaTime) {
+    // Called every frame while gameplay is active.
+  }
 
-- `.ieasset` stores reusable Infinite Engine assets.
-- `.iescene` stores a world and its actor instances.
-- `.gltf` and `.glb` files can be inspected and imported.
-- `Infinite.ieproject` stores project metadata, the entry script, and the starting scene.
+  onEnd() {
+    // Called when gameplay stops.
+  }
+}
 
-Avoid editing an asset externally while it has unsaved changes open in an Infinite Engine editor. If a file changes on disk, reopen it or accept the refreshed version before continuing.
+module.exports = MyGame;
+```
+
+Use `print(value)` to write to the **Infinite Engine** output channel during play. The extension registers `@infinite/Runtime` at runtime, so projects should use this alias instead of a relative path to the extension source.
+
+## Supported files
+
+| File | Purpose |
+| --- | --- |
+| `.iescene` | Infinite Engine worlds and actor instances |
+| `.ieasset` | Reusable actors and other engine assets |
+| `.gltf`, `.glb` | 3D model preview and import |
+| `Infinite.ieproject` | Project entry script and starting scene |
+
+Avoid editing an asset externally while it has unsaved changes in an Infinite Engine editor. If a file changes on disk, reopen it or accept the refreshed version before continuing.
 
 ## Settings
 
-Search for **Infinite Engine** in VS Code Settings. Available settings include:
+Search for **Infinite Engine** in VS Code Settings.
 
 | Setting | Default | Purpose |
 | --- | ---: | --- |
 | `infinite.autoLoadProject` | `true` | Load a project when its workspace opens. |
 | `infinite.autoSave` | `true` | Automatically save scene and asset changes. |
 | `infinite.editor.showGrid` | `true` | Show the viewport grid. |
-| `infinite.editor.backgroundColor` | `#000000` | Set the editor viewport background. |
+| `infinite.editor.backgroundColor` | `#000000` | Set the viewport background color. |
 | `infinite.editor.cameraSpeed` | `1` | Set viewport camera movement speed. |
 | `infinite.editor.showOutliner` | `true` | Enable the Infinite Outliner. |
 | `infinite.script.autoCompile` | `true` | Compile visual scripts after saving. |
@@ -176,19 +148,19 @@ Search for **Infinite Engine** in VS Code Settings. Available settings include:
 | `infinite.assets.autoScan` | `true` | Scan `Assets` for `.ieasset` files. |
 | `infinite.assets.cacheEnabled` | `true` | Cache loaded assets. |
 
-## Development
+## Feedback and issues
+
+Found a bug or have an idea? [Open an issue on GitHub](https://github.com/SterlyDolce/VSCodeInfiniteEngine/issues) and include your VS Code version, Infinite Engine version, reproduction steps, and any relevant output logs.
+
+## Developing from source
+
+Clone the repository, run `npm install`, open it in VS Code, and press `F5` to start an Extension Development Host.
 
 ```sh
 npm run lint
 npm test
 npm run package
 ```
-
-- `npm run lint` checks the extension source.
-- `npm test` runs the VS Code extension-host test suite.
-- `npm run package` creates an installable VSIX package.
-
-After changing extension code, restart or reload the Extension Development Host before validating editor behavior.
 
 ## License
 
