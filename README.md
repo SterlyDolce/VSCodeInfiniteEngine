@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/SterlyDolce/VSCodeInfiniteEngine/main/images/infinite-color.png" alt="Infinite Engine logo" width="160">
+  <img src="./images/infinite-color.png" alt="Infinite Engine logo" width="160">
 </p>
 
 <h1 align="center">Infinite Engine</h1>

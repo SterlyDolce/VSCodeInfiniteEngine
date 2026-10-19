@@ -6,6 +6,9 @@ const IEActorInstance = require('../IEActorInstance');
 const IEAssetManager = require('../IEAssetManager');
 const ActorRegistry = require('../ActorRegistry');
 const registerActors = require('../Actors/registerActors');
+const IETerrainGraphEvaluator = require('../IEWorldEditor/IETerrainGraphEvaluator');
+const { resolveTerrainTextures } = require('../IEWorldEditor/IETextureDataDecoder');
+const crypto = require('crypto');
 
 registerActors();
 
@@ -33,6 +36,14 @@ class IESceneEditor {
 		webviewPanel.onDidDispose(() => {
 			this.panels.delete(sceneKey);
 		});
+
+		const terrainWatcher = vscode.workspace.onDidChangeTextDocument(event => {
+			if (event.document.uri.toString() === document.uri.toString() || !event.document.uri.path.endsWith('.ieasset')) return;
+			try {
+				if (JSON.parse(event.document.getText()).type === 'terrain') void this.refreshScene(document.uri);
+			} catch { /* An incomplete asset edit is ignored until it is valid. */ }
+		});
+		webviewPanel.onDidDispose(() => terrainWatcher.dispose());
 
 		webviewPanel.webview.options = {
 			enableScripts: true,
@@ -433,6 +444,22 @@ class IESceneEditor {
 			);
 
 			for (const component of actor.components ?? []) {
+				if (component.type === 'terrain') {
+					const asset = await assetManager.resolve(component.terrain);
+					if (asset?.type === 'terrain') {
+						try {
+							const graph = asset.data ?? asset.graph;
+							const textures = await resolveTerrainTextures(
+								graph,
+								assetManager
+							);
+							component.resolvedTerrain = new IETerrainGraphEvaluator(undefined, { maxResolution: 512, textures }).evaluate(graph).terrain;
+							component.terrainRevision = crypto.createHash('sha1').update(JSON.stringify(asset.data ?? asset.graph)).digest('hex');
+						} catch (error) {
+							component.terrainError = error.message;
+						}
+					}
+				}
 				if (component.type === 'script') {
 					const asset = await assetManager.resolve(component.script);
 

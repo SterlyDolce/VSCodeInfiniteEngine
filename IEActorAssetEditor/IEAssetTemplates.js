@@ -111,6 +111,24 @@ registerTemplate('material', {
     })
 });
 
+registerTemplate('terrain', {
+    label: 'Terrain',
+    description: 'Create a procedural terrain graph',
+    icon: 'map',
+    create: () => {
+        const height = { id: uuid(), type: 'world.heightMap', position: [30, 120], pins: [] };
+        const plane = { id: uuid(), type: 'world.plane', position: [330, 120], pins: [] };
+        const output = { id: uuid(), type: 'world.terrainOutput', position: [650, 120], pins: [] };
+        const input = (node, name, type, value) => { const pin = { id: uuid(), name, type, direction: 'input', value }; node.pins.push(pin); return pin; };
+        const out = (node, name, type) => { const pin = { id: uuid(), name, type, direction: 'output' }; node.pins.push(pin); return pin; };
+        input(height, 'Width', 'number', 129); input(height, 'Height', 'number', 129); input(height, 'Seed', 'number', 1); input(height, 'Scale', 'number', 4); input(height, 'Amplitude', 'number', 8); input(height, 'Octaves', 'number', 5); input(height, 'Persistence', 'number', .5); input(height, 'Lacunarity', 'number', 2);
+        const heightOut = out(height, 'Heightmap', 'heightmap');
+        input(plane, 'Width', 'number', 100); input(plane, 'Depth', 'number', 100); input(plane, 'Resolution X', 'number', 128); input(plane, 'Resolution Y', 'number', 128); const heightIn = input(plane, 'Heightmap', 'heightmap', null); const geometryOut = out(plane, 'Geometry', 'geometry');
+        const geometryIn = input(output, 'Geometry', 'geometry', null); out(output, 'Terrain', 'terrain');
+        return { version: 1, nodes: [height, plane, output], links: [{ id: uuid(), from: heightOut.id, to: heightIn.id }, { id: uuid(), from: geometryOut.id, to: geometryIn.id }] };
+    }
+});
+
 // =====================================================
 // 5. TEXTURE
 // =====================================================

@@ -15,6 +15,7 @@ const IEVolumetricCloudComponent = require('./IEVolumetricCloudComponent');
 const IERigidBodyComponent = require('./IERigidBodyComponent');
 const IEColliderComponent = require('./IEColliderComponent');
 const IESpringArmComponent = require('./IESpringArmComponent');
+const IETerrainComponent = require('./IETerrainComponent');
 
 function registerComponents() {
     const builtins = {
@@ -30,7 +31,8 @@ function registerComponents() {
         ambientLight: IEAmbientLightComponent,
         volumetricCloud: IEVolumetricCloudComponent,
         rigidBody: IERigidBodyComponent,
-        collider: IEColliderComponent
+        collider: IEColliderComponent,
+        terrain: IETerrainComponent
     };
 
     for (const [type, ComponentClass] of Object.entries(builtins)) {

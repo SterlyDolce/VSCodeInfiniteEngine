@@ -17,10 +17,25 @@
 <body>
     <header class="toolbar">
         <span id="model-name">Model Viewer</span>
-        <button id="create-assets" disabled>Create IEAssets</button>
+        <div class="asset-actions">
+            <input id="asset-name" aria-label="Actor asset name" placeholder="Actor name">
+            <button id="create-assets" disabled>Create Selected IEAssets</button>
+        </div>
     </header>
 
-    <main id="viewport"></main>
+    <main class="workspace">
+        <aside id="parts-panel">
+            <div class="parts-heading">
+                <strong>Model Parts</strong>
+                <span>
+                    <button id="select-all" class="link-button">All</button>
+                    <button id="select-none" class="link-button">None</button>
+                </span>
+            </div>
+            <div id="parts-list"></div>
+        </aside>
+        <div id="viewport"></div>
+    </main>
 
 
     <div id="animation-toolbar">

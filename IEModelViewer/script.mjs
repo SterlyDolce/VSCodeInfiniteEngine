@@ -14,6 +14,10 @@ const viewport = document.getElementById('viewport');
 const modelName = document.getElementById('model-name');
 const status = document.getElementById('status');
 const createButton = document.getElementById('create-assets');
+const assetName = document.getElementById('asset-name');
+const partsList = document.getElementById('parts-list');
+const selectAllButton = document.getElementById('select-all');
+const selectNoneButton = document.getElementById('select-none');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#181818');
@@ -44,6 +48,8 @@ const loader = new GLTFLoader();
 
 let currentModel = null;
 let currentAnimations = [];
+let importParts = [];
+let pendingAutoImport = false;
 
 let animationMixer = null;
 let activeAction = null;
@@ -275,7 +281,7 @@ animationTimeline.addEventListener('input', () => {
 
 
 
-async function loadModel(uri, name) {
+async function loadModel(uri, name, autoImport = false) {
     createButton.disabled = true;
     status.textContent = 'Loading model...';
 
@@ -320,6 +326,43 @@ async function loadModel(uri, name) {
 
         currentModel = gltf.scene;
 
+        // Expose the first useful hierarchy level rather than forcing a
+        // multi-model GLB to become one monolithic actor. Checked branches are
+        // authored together as a new actor asset.
+        let partsRoot = currentModel;
+        while (
+            partsRoot.children.length === 1 &&
+            !partsRoot.children[0].isMesh
+        ) {
+            partsRoot = partsRoot.children[0];
+        }
+
+        importParts = partsRoot.children.filter(part => {
+            let containsMesh = false;
+            part.traverse(object => {
+                if (object.isMesh) containsMesh = true;
+            });
+            return containsMesh;
+        });
+
+        partsList.replaceChildren(...importParts.map((part, index) => {
+            const label = document.createElement('label');
+            label.className = 'part-row';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = true;
+            checkbox.dataset.partIndex = String(index);
+
+            const text = document.createElement('span');
+            text.textContent = part.name || `Part ${index + 1}`;
+
+            label.append(checkbox, text);
+            return label;
+        }));
+
+        assetName.value = name.replace(/\.(glb|gltf)$/i, '');
+
         scene.add(currentModel);
 
         setupAnimations(gltf.animations ?? []);
@@ -360,6 +403,10 @@ async function loadModel(uri, name) {
         modelName.textContent = name;
         status.textContent = '';
         createButton.disabled = false;
+        if (autoImport || pendingAutoImport) {
+            pendingAutoImport = false;
+            createButton.click();
+        }
     } catch (error) {
         status.textContent = 'Unable to load model';
 
@@ -375,7 +422,12 @@ window.addEventListener('message', event => {
 
     switch (message.type) {
         case 'loadModel':
-            loadModel(message.uri, message.name);
+            loadModel(message.uri, message.name, message.autoImport);
+            break;
+
+        case 'startImport':
+            if (currentModel) createButton.click();
+            else pendingAutoImport = true;
             break;
 
         case 'conversionComplete':
@@ -405,10 +457,30 @@ createButton.addEventListener('click', async () => {
     status.textContent = 'Converting model...';
 
     try {
-        const name = modelName.textContent
+        const name = assetName.value.trim() || modelName.textContent
             .replace(/\.(glb|gltf)$/i, '');
 
-        const result = await convertModel(currentModel, name, currentAnimations);
+        const selectedRoots = new Set(
+            [...partsList.querySelectorAll('input:checked')]
+                .map(input => importParts[Number(input.dataset.partIndex)])
+                .filter(Boolean)
+        );
+
+        if (!selectedRoots.size) {
+            throw new Error('Select at least one model part');
+        }
+
+        const selectedObjects = new Set();
+        for (const root of selectedRoots) {
+            root.traverse(object => selectedObjects.add(object));
+        }
+
+        const result = await convertModel(
+            currentModel,
+            name,
+            currentAnimations,
+            { includeObject: object => selectedObjects.has(object) }
+        );
 
         postAssetsUpdate('saveConvertedAssets', {
             modelName: name,
@@ -423,6 +495,15 @@ createButton.addEventListener('click', async () => {
         console.error(error);
     }
 });
+
+const setAllParts = checked => {
+    for (const input of partsList.querySelectorAll('input')) {
+        input.checked = checked;
+    }
+};
+
+selectAllButton.addEventListener('click', () => setAllParts(true));
+selectNoneButton.addEventListener('click', () => setAllParts(false));
 
 
 function resize() {

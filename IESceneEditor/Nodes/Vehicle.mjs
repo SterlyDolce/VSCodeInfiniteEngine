@@ -5,6 +5,20 @@ import * as THREE from 'three';
 
 const states = new WeakMap();
 
+function yawFromQuaternion(quaternion) {
+    return new THREE.Euler()
+        .setFromQuaternion(quaternion, 'YXZ')
+        .y;
+}
+
+function dampAngle(current, target, response, deltaTime) {
+    const difference = Math.atan2(
+        Math.sin(target - current),
+        Math.cos(target - current)
+    );
+    return current + difference * (1 - Math.exp(-response * deltaTime));
+}
+
 nodeRegistry.register('control.vehicle', {
     name: 'Car Controller',
     category: 'Controller',
@@ -94,6 +108,11 @@ nodeRegistry.register('control.player', {
         { name: 'deceleration', type: 'number', default: 20 },
 
         { name: 'cameraRelative', type: 'boolean', default: false },
+        {
+            name: 'Movement Reference',
+            type: 'transformable',
+            default: null
+        },
 
         { name: 'rotation', type: 'boolean', default: true },
         { name: 'rotationSpeed', type: 'number', default: 12 }
@@ -145,13 +164,14 @@ nodeRegistry.register('control.player', {
 
         if (!state) {
             state = {
-                velocity: new THREE.Vector3(),
+				velocity: new THREE.Vector3(),
                 direction: new THREE.Vector3(),
                 speed: 0,
 				jumpPressed: false,
-				jumpBuffer: 0,
-				groundedGrace: 0,
-				isGrounded: false
+				isGrounded: false,
+                groundedHold: 0,
+                jumpGroundLock: 0,
+                yaw: null
             };
 
             states.set(node, state);
@@ -169,13 +189,45 @@ nodeRegistry.register('control.player', {
 
         // Transform local input into world direction
         if (cameraRelative) {
-            const camera = actor.userData?.camera;
+            const hasMovementReference = node.pins?.some(pin =>
+                pin.name === 'Movement Reference' && pin.direction === 'input'
+            );
+            let reference = hasMovementReference
+                ? readInput('Movement Reference')
+                : null;
 
-            if (camera) {
-                const cameraForward = new THREE.Vector3();
-                camera.getWorldDirection(cameraForward);
+            // Compatibility for graphs saved before Movement Reference was
+            // introduced. New graphs make this dependency explicit.
+            if (!reference && !hasMovementReference) {
+                let highestPriority = -Infinity;
+                actor.traverse?.(object => {
+                    if (
+                        object.isCamera &&
+                        object.userData?.activeCamera === true &&
+                        Number(object.userData?.cameraPriority ?? 0) > highestPriority
+                    ) {
+                        reference = object;
+                        highestPriority = Number(
+                            object.userData?.cameraPriority ?? 0
+                        );
+                    }
+                });
+            }
+
+            if (reference) {
+                reference.updateWorldMatrix?.(true, false);
+                const rotation = reference.getWorldQuaternion(
+                    new THREE.Quaternion()
+                );
+                const cameraForward = new THREE.Vector3(0, 0, -1)
+                    .applyQuaternion(rotation);
 
                 cameraForward.y = 0;
+
+                if (cameraForward.lengthSq() < 1e-8) {
+                    cameraForward.set(0, 0, -1);
+                }
+
                 cameraForward.normalize();
 
                 const cameraRight = new THREE.Vector3()
@@ -232,35 +284,42 @@ nodeRegistry.register('control.player', {
         const dynamicBody = body?.isDynamic?.() === true;
 
         if (dynamicBody) {
-			state.isGrounded = engine?.isGrounded?.(actor, 0.25) === true;
+			state.jumpGroundLock = Math.max(
+				0,
+				state.jumpGroundLock - dt
+			);
+			const hasGroundContact =
+				state.jumpGroundLock === 0 &&
+				engine?.isGrounded?.(actor, 0.25) === true;
 
-			if (state.isGrounded) {
-				state.groundedGrace = 0.12;
+			if (hasGroundContact) {
+				state.groundedHold = 0.15;
 			} else {
-				state.groundedGrace = Math.max(0, state.groundedGrace - dt);
+				state.groundedHold = Math.max(0, state.groundedHold - dt);
 			}
 
-			if (jump && !state.jumpPressed) {
-				state.jumpBuffer = 0.15;
-			} else {
-				state.jumpBuffer = Math.max(0, state.jumpBuffer - dt);
-			}
-
+			// A short hold prevents animation/state flicker while moving across
+			// triangle seams. Jumping still requires a current contact below.
+			state.isGrounded = hasGroundContact || state.groundedHold > 0;
+			const verticalVelocity = body.linvel().y;
 			const shouldJump =
-				state.jumpBuffer > 0 && state.groundedGrace > 0;
+				jump &&
+				!state.jumpPressed &&
+				hasGroundContact &&
+				verticalVelocity <= 0.1;
 
 			if (shouldJump) {
-				state.jumpBuffer = 0;
-				state.groundedGrace = 0;
 				state.isGrounded = false;
+				state.groundedHold = 0;
+				state.jumpGroundLock = 0.12;
 			}
 
-			const verticalVelocity = shouldJump
+			const nextVerticalVelocity = shouldJump
 				? jumpSpeed
-				: body.linvel().y;
+				: verticalVelocity;
             body.setLinvel({
                 x: state.velocity.x,
-                y: verticalVelocity,
+                y: nextVerticalVelocity,
                 z: state.velocity.z
             }, true);
         } else if (maxChange > 0) {
@@ -270,9 +329,23 @@ nodeRegistry.register('control.player', {
 
 		state.jumpPressed = jump;
 
+        const horizontalVelocity = new THREE.Vector3(
+            state.velocity.x,
+            0,
+            state.velocity.z
+        );
+        const shouldRotate =
+            rotationEnabled &&
+            rotationSpeed > 0 &&
+            horizontalVelocity.lengthSq() > 0.0025;
+
         // Dynamic character bodies must stay upright. Collision impulses can
         // otherwise tip the capsule and roll any camera parented to the actor.
         if (dynamicBody) {
+            // Lock pitch and roll at the solver level. Correcting rotation
+            // before the physics step alone still lets steep terrain tip the
+            // body during that step, producing a visibly rolled frame.
+            body.setEnabledRotations(false, true, false, true);
             const bodyRotation = body.rotation();
             const currentRotation = new THREE.Quaternion(
                 bodyRotation.x,
@@ -280,42 +353,49 @@ nodeRegistry.register('control.player', {
                 bodyRotation.z,
                 bodyRotation.w
             );
-            const yaw = new THREE.Euler()
-                .setFromQuaternion(currentRotation, 'YXZ').y;
-            const uprightRotation = new THREE.Quaternion()
-                .setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+            if (!Number.isFinite(state.yaw)) {
+                state.yaw = yawFromQuaternion(currentRotation);
+            }
 
-            if (rotationEnabled && moving && rotationSpeed > 0) {
-                // Three.js actors face local -Z at zero rotation.
-                const angle = Math.atan2(-direction.x, -direction.z);
-                const desired = new THREE.Quaternion().setFromAxisAngle(
-                    new THREE.Vector3(0, 1, 0),
-                    angle
+            if (shouldRotate) {
+                const targetYaw = Math.atan2(
+                    -horizontalVelocity.x,
+                    -horizontalVelocity.z
                 );
-
-                uprightRotation.slerp(
-                    desired,
-                    1 - Math.exp(-rotationSpeed * dt)
+                state.yaw = dampAngle(
+                    state.yaw,
+                    targetYaw,
+                    rotationSpeed,
+                    dt
                 );
             }
 
+            const uprightRotation = new THREE.Quaternion().setFromAxisAngle(
+                new THREE.Vector3(0, 1, 0),
+                state.yaw
+            );
             body.setAngvel({ x: 0, y: 0, z: 0 }, true);
             body.setRotation(uprightRotation, true);
         // Smoothly face movement direction for non-physics actors.
-        } else if (rotationEnabled && moving && rotationSpeed > 0) {
-            const angle = Math.atan2(
-                -direction.x,
-                -direction.z
+        } else if (shouldRotate) {
+            if (!Number.isFinite(state.yaw)) {
+                state.yaw = yawFromQuaternion(
+                    actor.getWorldQuaternion(new THREE.Quaternion())
+                );
+            }
+            const targetYaw = Math.atan2(
+                -horizontalVelocity.x,
+                -horizontalVelocity.z
             );
-
-            const desired = new THREE.Quaternion().setFromAxisAngle(
+            state.yaw = dampAngle(
+                state.yaw,
+                targetYaw,
+                rotationSpeed,
+                dt
+            );
+            actor.quaternion.setFromAxisAngle(
                 new THREE.Vector3(0, 1, 0),
-                angle
-            );
-
-            actor.quaternion.slerp(
-                desired,
-                1 - Math.exp(-rotationSpeed * dt)
+                state.yaw
             );
         }
 

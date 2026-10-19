@@ -28,6 +28,27 @@ const BODY_TYPES = {
     kinematicvelocity: 'kinematicVelocity'
 };
 
+// Rapier consumes the height matrix in column-major order. Infinite Engine's
+// plane vertices are row-major (Z rows, X columns), so copying the position
+// buffer directly transposes the collision surface whenever X/Z samples vary.
+export function createTerrainHeightfield(geometry) {
+	const rows = geometry.resolutionY;
+	const columns = geometry.resolutionX;
+	const sampleRows = rows + 1;
+	const sampleColumns = columns + 1;
+	const heights = new Float32Array(sampleRows * sampleColumns);
+
+	for (let column = 0; column < sampleColumns; column++) {
+		for (let row = 0; row < sampleRows; row++) {
+			const vertex = row * sampleColumns + column;
+			const matrix = row + column * sampleRows;
+			heights[matrix] = finite(geometry.positions[vertex * 3 + 1]);
+		}
+	}
+
+	return { rows, columns, heights };
+}
+
 const normalizeBodyType = value =>
     BODY_TYPES[String(value ?? 'fixed').trim().toLowerCase()];
 
@@ -75,11 +96,14 @@ export class IEPhysicsRuntime {
         const rigidBodyComponent = components.find(component =>
             component.type === 'rigidBody' && component.enabled !== false
         );
+		const terrains = components.filter(component =>
+			component.type === 'terrain' && component.enabled !== false && component.physics !== false && component.resolvedTerrain?.geometry
+		);
 
         // A collider without an explicit body is a static collider. Conversely,
         // a rigid body is still useful without a collider (for example, as a
         // physics-driven parent or while its collider is being configured).
-        if (!colliders.length && !rigidBodyComponent) return;
+        if (!colliders.length && !terrains.length && !rigidBodyComponent) return;
 
         const rigidBody = rigidBodyComponent ?? { bodyType: 'fixed' };
 
@@ -160,6 +184,22 @@ export class IEPhysicsRuntime {
             const collider = this.world.createCollider(descriptor, body);
             this.colliderActors.set(collider.handle, actor);
         }
+		for (const component of terrains) {
+			const geometry = component.resolvedTerrain.geometry;
+			const { rows, columns, heights } = createTerrainHeightfield(geometry);
+			const descriptor = RAPIER.ColliderDesc.heightfield(
+				rows, columns, heights,
+				{
+					x: geometry.width * Math.abs(scale.x),
+					y: Math.abs(scale.y),
+					z: geometry.depth * Math.abs(scale.z)
+				},
+				RAPIER.HeightFieldFlags.FIX_INTERNAL_EDGES
+			).setFriction(Math.max(0, finite(component.friction, .8)))
+			 .setRestitution(Math.max(0, finite(component.restitution)));
+			const collider = this.world.createCollider(descriptor, body);
+			this.colliderActors.set(collider.handle, actor);
+		}
 
         this.entries.push({
             actor,
@@ -248,6 +288,37 @@ export class IEPhysicsRuntime {
             : null;
     }
 
+	castSpringArm(origin, target, radius = 0.25, actor = null) {
+		if (!this.ready || !this.world) return null;
+
+		const dx = target.x - origin.x;
+		const dy = target.y - origin.y;
+		const dz = target.z - origin.z;
+		const distance = Math.hypot(dx, dy, dz);
+		if (distance <= 1e-6) return null;
+
+		const direction = {
+			x: dx / distance,
+			y: dy / distance,
+			z: dz / distance
+		};
+		const hit = this.world.castShape(
+			origin,
+			{ x: 0, y: 0, z: 0, w: 1 },
+			direction,
+			new RAPIER.Ball(positive(radius, 0.25)),
+			0,
+			distance,
+			true,
+			undefined,
+			undefined,
+			undefined,
+			actor ? this.getBody(actor) : undefined
+		);
+
+		return hit ? Math.max(0, Math.min(distance, hit.time_of_impact)) : null;
+	}
+
 	isGrounded(actor, tolerance = 0.15) {
 		if (!this.ready || !this.world) return false;
 
@@ -255,6 +326,7 @@ export class IEPhysicsRuntime {
 		if (!body) return false;
 
 		const origin = body.translation();
+		const minimumGroundNormal = 0.25;
 		const ray = new RAPIER.Ray(origin, { x: 0, y: -1, z: 0 });
 		const distance = (this.actorGroundDistances.get(actor) ?? 0) +
 			Math.max(0, finite(tolerance, 0.15));
@@ -268,16 +340,20 @@ export class IEPhysicsRuntime {
 			body
 		);
 
-		if (hit && hit.normal.y > 0.5) return true;
+		if (hit && hit.normal.y >= minimumGroundNormal) return true;
 
-		// Resting contacts are more reliable than a ray when a collider has an
-		// offset, unusual imported dimensions, or is already touching a slope.
+		// A center ray often misses beneath a capsule resting on an uneven or
+		// steep heightfield. Inspect the actual contact patch instead.
 		for (let index = 0; index < body.numColliders(); index++) {
 			const collider = body.collider(index);
 			let grounded = false;
 
 			this.world.contactPairsWith(collider, other => {
+				if (grounded) return;
 				this.world.contactPair(collider, other, manifold => {
+					const normal = manifold.normal();
+					if (Math.abs(normal.y) < minimumGroundNormal) return;
+
 					for (let contact = 0; contact < manifold.numSolverContacts(); contact++) {
 						const point = manifold.solverContactPoint(contact);
 						if (point && point.y < origin.y - 0.05) {
@@ -289,6 +365,28 @@ export class IEPhysicsRuntime {
 			});
 
 			if (grounded) return true;
+
+			// Sweep the whole collider a small distance down. This covers the
+			// small separation Rapier permits between resting contacts and avoids
+			// depending on a single point beneath the actor origin.
+			const shapeHit = this.world.castShape(
+				collider.translation(),
+				collider.rotation(),
+				{ x: 0, y: -1, z: 0 },
+				collider.shape,
+				0,
+				Math.max(0, finite(tolerance, 0.15)),
+				true,
+				undefined,
+				undefined,
+				collider,
+				body
+			);
+
+			if (
+				shapeHit &&
+				shapeHit.normal1.y >= minimumGroundNormal
+			) return true;
 		}
 
 		return false;

@@ -11,6 +11,7 @@ const IEVector3 = require('./IEVector3');
 const IEGeometry = require('./IEGeometry');
 const IEMaterial = require('./IEMaterial');
 const IEScript = require('./IEScript');
+const IETerrain = require('./IETerrain');
 
 const {
     IEActorRef,
@@ -69,5 +70,6 @@ IETypeRegistry.register(IEMeshRef, 'Mesh', null);
 IETypeRegistry.register(IEGeometry, 'Geometry', null);
 IETypeRegistry.register(IEMaterial, 'Material', null);
 IETypeRegistry.register(IEScript, 'Script', null);
+IETypeRegistry.register(IETerrain, 'Terrain', null);
 
 module.exports = IETypeRegistry;

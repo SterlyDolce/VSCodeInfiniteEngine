@@ -1,5 +1,8 @@
 // @ts-nocheck
 const assert = require('assert');
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
 
 // You can import and use all API from the 'vscode' module
 // as well as import your extension to test it
@@ -14,6 +17,7 @@ const ComponentRegistry = require('../ComponentRegistry');
 const ActorRegistry = require('../ActorRegistry');
 const registerComponents = require('../Components/registerComponents');
 const registerActors = require('../Actors/registerActors');
+const IEAssetImporter = require('../IEAssetImporter');
 // const myExtension = require('../extension');
 
 suite('Extension Test Suite', () => {
@@ -22,6 +26,98 @@ suite('Extension Test Suite', () => {
 	test('Sample test', () => {
 		assert.strictEqual(-1, [1, 2, 3].indexOf(5));
 		assert.strictEqual(-1, [1, 2, 3].indexOf(0));
+	});
+
+	test('image import creates a texture and reimport preserves its ID', async () => {
+		const project = await fs.mkdtemp(path.join(os.tmpdir(), 'ie-import-test-'));
+		try {
+			await fs.writeFile(path.join(project, 'Infinite.ieproject'), '{}');
+			const source = path.join(project, 'height.png');
+			const png = Buffer.from(
+				'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+3n0AAAAASUVORK5CYII=',
+				'base64'
+			);
+			await fs.writeFile(source, png);
+			const importer = new IEAssetImporter(project);
+			const first = await importer.importFiles([source]);
+			assert.strictEqual(first[0].success, true);
+			assert.strictEqual(first[0].assets[0].type, 'texture');
+			assert.match(first[0].assets[0].data.image, /^data:image\/png;base64,/);
+
+			const id = first[0].assets[0].id;
+			const second = await importer.importFiles([source]);
+			assert.strictEqual(second[0].success, true);
+			assert.strictEqual(second[0].reimported, true);
+			assert.strictEqual(second[0].assets[0].id, id);
+		} finally {
+			await fs.rm(project, { recursive: true, force: true });
+		}
+	});
+
+	test('image imports avoid filename collisions', async () => {
+		const project = await fs.mkdtemp(path.join(os.tmpdir(), 'ie-import-collision-'));
+		try {
+			const one = path.join(project, 'one');
+			const two = path.join(project, 'two');
+			await fs.mkdir(one);
+			await fs.mkdir(two);
+			const png = Buffer.from(
+				'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+3n0AAAAASUVORK5CYII=',
+				'base64'
+			);
+			await fs.writeFile(path.join(one, 'same.png'), png);
+			await fs.writeFile(path.join(two, 'same.png'), png);
+			const results = await new IEAssetImporter(project).importFiles([
+				path.join(one, 'same.png'), path.join(two, 'same.png')
+			]);
+			assert(results.every(result => result.success));
+			assert.notStrictEqual(results[0].directory, results[1].directory);
+		} finally {
+			await fs.rm(project, { recursive: true, force: true });
+		}
+	});
+
+	test('model reimport preserves asset IDs and rewrites references', async () => {
+		const project = await fs.mkdtemp(path.join(os.tmpdir(), 'ie-model-import-'));
+		try {
+			const source = path.join(project, 'model.glb');
+			await fs.writeFile(source, 'test source');
+			const createAssets = () => {
+				const geometryId = require('crypto').randomUUID();
+				return [{
+					id: geometryId,
+					type: 'geometry',
+					name: 'Body_Geometry',
+					data: { positions: [0, 0, 0] }
+				}, {
+					id: require('crypto').randomUUID(),
+					type: 'actor',
+					name: 'Body',
+					data: {
+						components: [{
+							geometry: { type: 'geometry', id: geometryId }
+						}]
+					}
+				}];
+			};
+
+			const importer = new IEAssetImporter(project);
+			const first = await importer.saveAssets(
+				source, 'gltf', createAssets(), { bundle: 'Body' }
+			);
+			const second = await importer.saveAssets(
+				source, 'gltf', createAssets(), { bundle: 'Body' }
+			);
+			assert.strictEqual(second.reimported, true);
+			assert.strictEqual(second.assets[0].id, first.assets[0].id);
+			assert.strictEqual(second.assets[1].id, first.assets[1].id);
+			assert.strictEqual(
+				second.assets[1].data.components[0].geometry.id,
+				second.assets[0].id
+			);
+		} finally {
+			await fs.rm(project, { recursive: true, force: true });
+		}
 	});
 
 	test('actor properties support partial vector updates', () => {

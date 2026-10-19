@@ -1,0 +1,6 @@
+{
+    "name": "CarGame",
+    "version": 1,
+    "entry": "main.js",
+    "startScene": "Scenes/Main.iescene"
+}

@@ -2,8 +2,9 @@
   "name": "infinite-engine",
   "displayName": "Infinite Engine",
   "description": "Infinite Engine — a powerful, extensible 3D game engine and visual scripting environment built directly into Visual Studio Code.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "sterlyd",
+  "icon": "images/icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -49,6 +50,12 @@
         "title": "Create Asset",
         "category": "Infinite Engine",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "infinite.importAssets",
+        "title": "Import Assets",
+        "category": "Infinite Engine",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "infinite.addActor",
@@ -235,6 +242,16 @@
     "menus": {
       "view/item/context": [
         {
+          "command": "infinite.importAssets",
+          "when": "view == infinite.assetExplorer && viewItem == infinite.project",
+          "group": "inline"
+        },
+        {
+          "command": "infinite.importAssets",
+          "when": "view == infinite.assetExplorer && viewItem == infinite.folder",
+          "group": "inline"
+        },
+        {
           "command": "infinite.addActor",
           "when": "view == infinite.outliner && viewItem == infiniteWorldActor",
           "group": "inline"
@@ -327,6 +344,11 @@
           "command": "infinite.createAsset",
           "when": "view == infinite.assetExplorer",
           "group": "navigation@1"
+        },
+        {
+          "command": "infinite.importAssets",
+          "when": "view == infinite.assetExplorer && infinite.projectOpen",
+          "group": "navigation@2"
         }
       ],
       "explorer/context": [
@@ -336,12 +358,21 @@
           "group": "infinite@1"
         },
         {
+          "command": "infinite.importAssets",
+          "when": "explorerResourceIsFolder && resourceFilename == Assets && infinite.projectOpen",
+          "group": "infinite@2"
+        },
+        {
           "command": "infinite.addActor",
           "when": "resourceExtname == .ieasset && infinite.projectOpen",
-          "group": "infinite@2"
+          "group": "infinite@3"
         }
       ],
       "commandPalette": [
+        {
+          "command": "infinite.importAssets",
+          "when": "infinite.projectOpen"
+        },
         {
           "command": "infinite.addActor",
           "when": "infinite.projectOpen"

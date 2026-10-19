@@ -9,6 +9,7 @@ const IECameraComponent = require('./IECameraComponent');
 const IERigidBodyComponent = require('./IERigidBodyComponent');
 const IEColliderComponent = require('./IEColliderComponent');
 const IESpringArmComponent = require('./IESpringArmComponent');
+const IETerrainComponent = require('./IETerrainComponent');
 
 const COMPONENT_TYPES = [
     { type: 'mesh', label: 'Mesh', icon: 'symbol-color' },
@@ -18,6 +19,7 @@ const COMPONENT_TYPES = [
     { type: 'springArm', label: 'Spring Arm', icon: 'arrow-both' },
     { type: 'rigidBody', label: 'Rigid Body', icon: 'symbol-structure' },
     { type: 'collider', label: 'Collider', icon: 'symbol-ruler' }
+    ,{ type: 'terrain', label: 'Terrain', icon: 'map' }
 ];
 
 const factories = {
@@ -27,7 +29,8 @@ const factories = {
     camera: () => new IECameraComponent(),
     springArm: () => new IESpringArmComponent(),
     rigidBody: () => new IERigidBodyComponent(),
-    collider: () => new IEColliderComponent()
+    collider: () => new IEColliderComponent(),
+    terrain: () => new IETerrainComponent()
 };
 
 function getComponentTypes() {

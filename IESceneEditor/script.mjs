@@ -563,6 +563,24 @@ function createRuntimeAnimationClip(reference) {
 const animationEndListeners = new Map();
 
 const engine = {
+	lockMouse() {
+		if (!isPlaying || document.pointerLockElement === renderer.domElement) {
+			return;
+		}
+
+		const request = renderer.domElement.requestPointerLock?.();
+		request?.catch?.(error => {
+			console.warn('[IE Input] Mouse lock request failed:', error);
+		});
+	},
+
+	showMouse() {
+		if (document.pointerLockElement) {
+			document.exitPointerLock?.();
+		}
+		renderer.domElement.style.cursor = '';
+	},
+
 	getPhysicsBody(actor) {
 		return physicsRuntime?.getBody(actor) ?? null;
 	},
@@ -942,6 +960,11 @@ function clearGameplayInput() {
 	}
 }
 
+document.addEventListener('pointerlockchange', () => {
+	renderer.domElement.style.cursor =
+		document.pointerLockElement === renderer.domElement ? 'none' : '';
+});
+
 renderer.domElement.addEventListener('pointermove', event => {
 	if (!isPlaying || isPaused) return;
 
@@ -1287,6 +1310,7 @@ function updateProperty({ actor: actorData }) {
 	if (!actor) return;
 
 	actor.name = actorData.name ?? actor.name;
+	actor.userData.components = structuredClone(actorData.components ?? []);
 	applyTransform(actor, actorData);
 	actor.updateMatrixWorld(true);
 
@@ -1331,7 +1355,8 @@ function synchronizeComponent(actor, data) {
 		(data.type === 'camera' &&
 			(data.projection === 'orthographic') !== (object instanceof THREE.OrthographicCamera)) ||
 		data.type === 'mesh' ||
-		data.type === 'collider';
+		data.type === 'collider' ||
+		(data.type === 'terrain' && object.userData.terrainRevision !== data.terrainRevision);
 
 	if (needsReplacement) {
 		const replacement = createRenderedComponent(data);
@@ -1339,6 +1364,7 @@ function synchronizeComponent(actor, data) {
 		initializeRenderedComponent(replacement, actor, data);
 		const oldRigGroup = object.userData.rigGroup;
 		object.removeFromParent();
+		if (data.type === 'terrain') disposeObject(object);
 		if (
 			oldRigGroup &&
 			!oldRigGroup.children.some(child => child.isSkinnedMesh)
@@ -1409,6 +1435,8 @@ function createRenderedComponent(data) {
 			return createSpringArm(data);
 		case 'collider':
 			return createColliderHelper(data);
+		case 'terrain':
+			return createTerrainMesh(data);
 		case 'pointLight':
 		case 'directionalLight':
 		case 'spotLight':
@@ -1423,6 +1451,7 @@ function initializeRenderedComponent(object, actor, data) {
 	object.userData.componentId = data.id;
 	object.userData.componentType = data.type;
 	object.userData.actorObject = actor;
+	object.userData.terrainRevision = data.terrainRevision;
 	applyTransform(object, data);
 	if (data.type === 'springArm') configureSpringArm(object, data);
 	if (data.type === 'collider') applyColliderHelperTransform(object, data);
@@ -1434,7 +1463,27 @@ function createSpringArm(data) {
 	return arm;
 }
 
-function updateSpringArms(root) {
+function createTerrainMesh(data) {
+	const source = data.resolvedTerrain?.geometry;
+	if (!source?.positions || !source?.indices) {
+		const empty = new THREE.Group();
+		empty.userData.terrainError = data.terrainError ?? 'Terrain asset is not generated';
+		return empty;
+	}
+	const geometry = new THREE.BufferGeometry();
+	geometry.setAttribute('position', new THREE.BufferAttribute(source.positions, 3));
+	if (source.normals) geometry.setAttribute('normal', new THREE.BufferAttribute(source.normals, 3));
+	if (source.uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(source.uvs, 2));
+	geometry.setIndex(new THREE.BufferAttribute(source.indices, 1));
+	if (!source.normals) geometry.computeVertexNormals();
+	geometry.computeBoundingSphere();
+	const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x678d58, roughness: .9 }));
+	mesh.receiveShadow = true;
+	mesh.userData.terrainData = source;
+	return mesh;
+}
+
+function updateSpringArms(root, deltaTime = 1 / 60) {
 	root.updateMatrixWorld(true);
 
 	root.traverse((arm) => {
@@ -1445,7 +1494,12 @@ function updateSpringArms(root) {
 		);
 		const rotation = arm.userData.springArmRotation ?? [0, 0, 0];
 		const quaternion = new THREE.Quaternion().setFromEuler(
-			new THREE.Euler(rotation[0] ?? 0, rotation[1] ?? 0, rotation[2] ?? 0)
+			new THREE.Euler(
+				rotation[0] ?? 0,
+				rotation[1] ?? 0,
+				rotation[2] ?? 0,
+				'YXZ'
+			)
 		);
 
 		if (arm.userData.followActorRotation) {
@@ -1471,6 +1525,50 @@ function updateSpringArms(root) {
 			arm.userData.socketOffset ?? [0, 0, 0]
 		);
 		socket.z += arm.userData.armLength ?? 0;
+		const fullDistance = socket.length();
+		let targetDistance = fullDistance;
+
+		if (
+			arm.userData.springArmCollisionTest !== false &&
+			physicsRuntime?.ready
+		) {
+			arm.updateWorldMatrix(true, false);
+			const origin = arm.getWorldPosition(new THREE.Vector3());
+			const target = arm.localToWorld(socket.clone());
+			const hitDistance = physicsRuntime.castSpringArm(
+				origin,
+				target,
+				0.25,
+				arm.userData.actorObject
+			);
+
+			if (hitDistance !== null) {
+				targetDistance = Math.max(0, hitDistance - 0.05);
+			}
+
+			const current = Number.isFinite(arm.userData.springArmCurrentDistance)
+				? arm.userData.springArmCurrentDistance
+				: fullDistance;
+			// Retract quickly to avoid clipping, but extend more gently so small
+			// changes in terrain contacts do not make the camera pop or vibrate.
+			const response = targetDistance < current ? 30 : 8;
+			const alpha = 1 - Math.exp(
+				-response * Math.min(Math.max(deltaTime, 0), 0.1)
+			);
+			arm.userData.springArmCurrentDistance = THREE.MathUtils.lerp(
+				current,
+				targetDistance,
+				alpha
+			);
+
+			if (fullDistance > 1e-6) {
+				socket.multiplyScalar(
+					arm.userData.springArmCurrentDistance / fullDistance
+				);
+			}
+		} else {
+			arm.userData.springArmCurrentDistance = fullDistance;
+		}
 
 		for (const child of arm.children) {
 			if (child.isCamera) child.position.copy(socket);
@@ -1485,6 +1583,8 @@ function configureSpringArm(arm, data) {
 	arm.userData.armLength = Math.max(0, Number(data.armLength) || 0);
 	arm.userData.socketOffset = [...(data.socketOffset ?? [0, 0, 0])];
 	arm.userData.followActorRotation = data.followActorRotation === true;
+	arm.userData.springArmCollisionTest = data.collisionTest !== false;
+	arm.userData.springArmCurrentDistance = undefined;
 	arm.userData.springArmPosition = [...(data.position ?? [0, 0, 0])];
 	arm.userData.springArmRotation = [...(data.rotation ?? [0, 0, 0])];
 }
@@ -2287,6 +2387,7 @@ function pausePlay() {
 
 	isPaused = true;
 	clearGameplayInput();
+	engine.showMouse();
 }
 
 function continuePlay() {
@@ -2318,6 +2419,7 @@ function stopPlay() {
 
 	animationMixers.clear();
 	clearGameplayInput();
+	engine.showMouse();
 	for (const runtime of scriptRuntimes) {
 		runtime.stop();
 	}
@@ -2472,6 +2574,10 @@ function createActor(actorData) {
 
 			case 'collider':
 				object = createColliderHelper(component);
+				break;
+
+			case 'terrain':
+				object = createTerrainMesh(component);
 				break;
 
 			case 'pointLight':
@@ -3305,7 +3411,10 @@ function animate() {
 		controls.update();
 	}
 
-	updateSpringArms(isPlaying ? gameplayActorRoot : editorActorRoot);
+	updateSpringArms(
+		isPlaying ? gameplayActorRoot : editorActorRoot,
+		deltaTime
+	);
 
 	if (!isPlaying) {
 		updateEditorHelpers();

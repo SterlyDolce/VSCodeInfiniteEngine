@@ -33,6 +33,29 @@ function getTarget({ node, actor, readInput }) {
     return target;
 }
 
+function getPlanarDirections(target) {
+    target.updateWorldMatrix?.(true, false);
+
+    const rotation = target.getWorldQuaternion(new THREE.Quaternion());
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(rotation);
+    forward.y = 0;
+
+    // Looking straight up/down has no useful ground-plane direction. Fall
+    // back to the spring arm's stored yaw so movement remains stable.
+    if (forward.lengthSq() < 1e-8 && target.userData?.springArm) {
+        const yaw = target.userData.springArmRotation?.[1] ?? 0;
+        forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    }
+
+    forward.normalize();
+    const right = new THREE.Vector3().crossVectors(
+        forward,
+        new THREE.Vector3(0, 1, 0)
+    ).normalize();
+
+    return { forward, right };
+}
+
 nodeRegistry.register('transform.rotate', {
     name: 'Rotate',
     category: 'Transform',
@@ -64,6 +87,78 @@ nodeRegistry.register('transform.rotate', {
             direction.normalize(),
             THREE.MathUtils.degToRad(degrees)
         );
+    }
+});
+
+nodeRegistry.register('transform.springArmOrbit', {
+    name: 'Spring Arm Orbit',
+    category: 'Transform',
+    inputs: [
+        { name: 'exec', type: 'execution' },
+        targetInput,
+        { name: 'deltaX', type: 'number', default: 0 },
+        { name: 'deltaY', type: 'number', default: 0 },
+        { name: 'sensitivity', type: 'number', default: 0.12 },
+        { name: 'minPitch', type: 'number', default: -65 },
+        { name: 'maxPitch', type: 'number', default: 75 }
+    ],
+    outputs: [
+        { name: 'exec', type: 'execution' }
+    ],
+    execute(context) {
+        const { readInput } = context;
+        const target = getTarget(context);
+
+        if (!target.userData?.springArm) {
+            throw new TypeError('Spring Arm Orbit requires a Spring Arm component');
+        }
+
+        const deltaX = Number(readInput('deltaX'));
+        const deltaY = Number(readInput('deltaY'));
+        const sensitivity = Math.max(0, Number(readInput('sensitivity')));
+        const minPitch = THREE.MathUtils.degToRad(Number(readInput('minPitch')));
+        const maxPitch = THREE.MathUtils.degToRad(Number(readInput('maxPitch')));
+
+        if (![deltaX, deltaY, sensitivity, minPitch, maxPitch].every(Number.isFinite)) {
+            throw new Error('Invalid Spring Arm Orbit inputs');
+        }
+
+        const rotation = target.userData.springArmRotation ?? [0, 0, 0];
+        const pitch = THREE.MathUtils.clamp(
+            (rotation[0] ?? 0) - THREE.MathUtils.degToRad(deltaY * sensitivity),
+            Math.min(minPitch, maxPitch),
+            Math.max(minPitch, maxPitch)
+        );
+        const yaw = (rotation[1] ?? 0) - THREE.MathUtils.degToRad(deltaX * sensitivity);
+
+        target.userData.springArmRotation = [pitch, yaw, rotation[2] ?? 0];
+        const orbitRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+            pitch,
+            yaw,
+            rotation[2] ?? 0,
+            'YXZ'
+        ));
+
+        if (target.userData.followActorRotation) {
+            target.quaternion.copy(orbitRotation);
+        } else if (target.parent) {
+            // The stored orbit is a world-space rotation when actor following
+            // is disabled. Apply the inverse parent rotation immediately so
+            // nodes later in this execution chain observe the correct camera
+            // direction instead of one frame of actor-yaw feedback.
+            target.parent.updateWorldMatrix?.(true, false);
+            const parentRotation = target.parent.getWorldQuaternion(
+                new THREE.Quaternion()
+            );
+            target.quaternion.copy(
+                parentRotation.invert().multiply(orbitRotation)
+            );
+        } else {
+            target.quaternion.copy(orbitRotation);
+        }
+        target.updateWorldMatrix?.(false, true);
+
+        return 'exec';
     }
 });
 
@@ -111,6 +206,30 @@ nodeRegistry.register('transform.getRight', {
             .applyQuaternion(rotation)
             .normalize()
             .toArray();
+    }
+});
+
+nodeRegistry.register('transform.getSpringArmDirections', {
+    name: 'Get Spring Arm Directions',
+    category: 'Transform',
+    inputs: [targetInput],
+    outputs: [
+        { name: 'forward', type: 'vector3' },
+        { name: 'right', type: 'vector3' }
+    ],
+    evaluate(context) {
+        const target = getTarget(context);
+
+        if (!target.userData?.springArm) {
+            throw new TypeError(
+                'Get Spring Arm Directions requires a Spring Arm component'
+            );
+        }
+
+        const directions = getPlanarDirections(target);
+        return context.output === 'right'
+            ? directions.right.toArray()
+            : directions.forward.toArray();
     }
 });
 

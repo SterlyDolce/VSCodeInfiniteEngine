@@ -20,7 +20,8 @@ export async function convertGLB(
 export async function convertModel(
     scene,
     modelName = 'Imported Model',
-    animations = []
+    animations = [],
+    options = {}
 ) {
     const assets = [];
     const components = [];
@@ -444,7 +445,10 @@ export async function convertModel(
     const meshes = [];
 
     scene.traverse(object => {
-        if (object.isMesh) {
+        if (
+            object.isMesh &&
+            (!options.includeObject || options.includeObject(object))
+        ) {
             meshes.push(object);
         }
     });

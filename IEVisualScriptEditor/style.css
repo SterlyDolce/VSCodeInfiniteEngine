@@ -295,6 +295,47 @@ select:focus-visible {
     font-size: 11px;
 }
 
+#connection-panel {
+    top: 56px;
+    right: 12px;
+    width: min(390px, calc(100vw - 24px));
+    max-height: calc(100vh - 80px);
+    overflow: auto;
+}
+
+#connection-panel label {
+    display: block;
+    margin: 10px 0;
+    font-size: 11px;
+}
+
+#connection-panel select,
+#connection-panel > button {
+    width: 100%;
+    margin-top: 6px;
+    padding: 7px;
+}
+
+#connection-list {
+    margin-top: 14px;
+    border-top: 1px solid var(--vscode-panel-border);
+    padding-top: 8px;
+}
+
+.connection-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    font-size: 10px;
+}
+
+.connection-row button {
+    padding: 3px 6px;
+}
+
 .variable-item {
     display: flex;
     align-items: center;

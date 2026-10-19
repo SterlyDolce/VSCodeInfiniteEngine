@@ -2,6 +2,7 @@
 require('./Runtime/registerAlias')();
 
 const vscode = require('vscode');
+const path = require('path');
 
 // ENGINE
 const IEProject = require('./IEProject');
@@ -9,6 +10,7 @@ const IEActorInstance = require('./IEActorInstance');
 const IEScene = require('./IEScene');
 const IEEngine = require('./IEEngine');
 const IEAssetManager = require('./IEAssetManager');
+const IEAssetImporter = require('./IEAssetImporter');
 
 // PANELS
 const IEOutlinerProvider = require('./IEOutliner');
@@ -26,6 +28,7 @@ const IETextureEditor = require('./IETextureEditor/IETextureEditor');
 const IEAnimationEditor = require('./IEAnimationEditor/IEAnimationEditor');
 const IEAnimationStateEditor = require('./IEAnimationStateEditor/IEAnimationStateEditor');
 const IESkeletonEditor = require('./IESkeletonEditor/IESkeletonEditor');
+const IEWorldEditor = require('./IEWorldEditor/IEWorldEditor');
 const IEAssetExplorer = require('./IEAssetExplorer');
 const IEProjectEditor = require('./IEProjectEditor/IEProjectEditor');
 
@@ -46,6 +49,7 @@ async function activate(context) {
 		'infinite.assetExplorer',
 		{
 			treeDataProvider: assetExplorer,
+			dragAndDropController: assetExplorer,
 			showCollapseAll: true
 		}
 	);
@@ -57,6 +61,68 @@ async function activate(context) {
 		assetExplorer.refresh();
 	};
 
+	const importAssets = async uris => {
+		const workspace = vscode.workspace.workspaceFolders?.[0];
+		if (!workspace) {
+			vscode.window.showErrorMessage(
+				'Open an Infinite Engine project before importing assets.'
+			);
+			return;
+		}
+
+		const importer = new IEAssetImporter(workspace.uri.fsPath);
+		let selections = uris;
+		if (!selections?.length) {
+			selections = await vscode.window.showOpenDialog({
+				canSelectFiles: true,
+				canSelectFolders: false,
+				canSelectMany: true,
+				defaultUri: workspace.uri,
+				filters: {
+					'Importable Assets': importer.getSupportedExtensions()
+				},
+				openLabel: 'Import Assets'
+			});
+		}
+		if (!selections?.length) return;
+
+		const results = await vscode.window.withProgress({
+			location: vscode.ProgressLocation.Notification,
+			title: `Importing ${selections.length} asset${selections.length === 1 ? '' : 's'}`,
+			cancellable: false
+		}, () => importer.importFiles(selections.map(uri => uri.fsPath)));
+
+		assetExplorer.refresh();
+		const failures = results.filter(result => !result.success);
+		const completed = results.filter(result => result.success && !result.pending);
+		const pending = results.filter(result => result.success && result.pending);
+		if (completed.length || pending.length) {
+			vscode.window.showInformationMessage(
+				`Imported ${completed.length} file${completed.length === 1 ? '' : 's'}` +
+				(pending.length
+					? `; opened ${pending.length} model${pending.length === 1 ? '' : 's'} for conversion.`
+					: '.')
+			);
+		}
+		if (failures.length) {
+			vscode.window.showErrorMessage(failures.map(result =>
+				`${path.basename(result.source)}: ${result.error}`
+			).join(' | '));
+		}
+	};
+
+	assetExplorer.setImportHandler(importAssets);
+
+	const importAssetsCommand = vscode.commands.registerCommand(
+		'infinite.importAssets',
+		() => importAssets()
+	);
+
+	const importModelAssetCommand = vscode.commands.registerCommand(
+		'infinite.importModelAsset',
+		uri => IEModelViewer.import(uri)
+	);
+
 	assetWatcher.onDidChange(() => {
 		assetExplorer.refresh();
 	});
@@ -65,6 +131,8 @@ async function activate(context) {
 		assetExplorer,
 		assetTreeView,
 		assetWatcher,
+		importAssetsCommand,
+		importModelAssetCommand,
 
 		assetWatcher.onDidCreate(refreshAssets),
 		assetWatcher.onDidDelete(refreshAssets),
@@ -1607,6 +1675,7 @@ async function activate(context) {
 	IEAssetEditorProvider.register('animation', IEAnimationEditor);
 	IEAssetEditorProvider.register('animationState', IEAnimationStateEditor);
 	IEAssetEditorProvider.register('skeleton', IESkeletonEditor);
+	IEAssetEditorProvider.register('terrain', IEWorldEditor);
 
 	const selectSkeletonNodeCommand = vscode.commands.registerCommand(
 		'infinite.selectSkeletonNode',
@@ -1856,6 +1925,7 @@ async function activate(context) {
 
 								case 'script':
 								case 'material':
+								case 'terrain':
 									if (data.target === 'functionParameter') {
 										return await propertiesProvider.updateFunctionParameter({
 											functionId: data.id,

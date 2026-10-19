@@ -211,6 +211,7 @@ class IEVisualScriptEditor {
     <div id="actions">
     <span></span>
     <button id="fit">Fit</button>
+    <button id="connections">Connections</button>
     <button id="zoom-out">−</button>
     <button id="zoom-in">+</button></div>
 </div>
@@ -219,6 +220,17 @@ class IEVisualScriptEditor {
             <input id="menu-search" placeholder="Search nodes..." />
             <div id="menu-items"></div>
         </div>
+
+        <section id="connection-panel" class="floating-panel" hidden>
+            <div class="panel-header">
+                <strong>Graph Connections</strong>
+                <button id="close-connections" aria-label="Close connections panel">×</button>
+            </div>
+            <label>From output<select id="connection-from"></select></label>
+            <label>To input<select id="connection-to"></select></label>
+            <button id="add-connection">Connect Pins</button>
+            <div id="connection-list"></div>
+        </section>
 
         <div id="status">Loading...</div>
         <div id="zoom-label">100%</div>

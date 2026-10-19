@@ -259,3 +259,33 @@ nodeRegistry.register('event.mouseButton', {
         return mouse?.buttons?.has(button) ?? false;
     }
 });
+
+nodeRegistry.register('input.lockMouse', {
+    name: 'Lock Mouse',
+    category: 'Input',
+    inputs: [
+        { name: 'exec', type: 'execution' }
+    ],
+    outputs: [
+        { name: 'exec', type: 'execution' }
+    ],
+    execute({ engine }) {
+        engine?.lockMouse?.();
+        return 'exec';
+    }
+});
+
+nodeRegistry.register('input.showMouse', {
+    name: 'Show Mouse',
+    category: 'Input',
+    inputs: [
+        { name: 'exec', type: 'execution' }
+    ],
+    outputs: [
+        { name: 'exec', type: 'execution' }
+    ],
+    execute({ engine }) {
+        engine?.showMouse?.();
+        return 'exec';
+    }
+});

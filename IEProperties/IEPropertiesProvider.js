@@ -237,7 +237,7 @@ class IEPropertiesProvider {
 
 		if (
 			editor?.type !== 'asset' ||
-			!['script', 'material'].includes(editor.assetType)
+			!['script', 'material', 'terrain'].includes(editor.assetType)
 		) return;
 
 		const selection = this.graphSelection?.selection;
@@ -277,6 +277,14 @@ class IEPropertiesProvider {
 			return IEMaterialEditor.panels?.get(uri) ?? null;
 		}
 
+		if (editor?.assetType === 'terrain') {
+			const IEWorldEditor = require(
+				'../IEWorldEditor/IEWorldEditor'
+			);
+
+			return IEWorldEditor.panels?.get(uri) ?? null;
+		}
+
 		const IEVisualScriptEditor = require(
 			'../IEVisualScriptEditor/IEVisualScriptEditor'
 		);
@@ -293,7 +301,7 @@ class IEPropertiesProvider {
 
 		if (
 			editor?.type !== 'asset' ||
-			!['script', 'material'].includes(editor.assetType) ||
+			!['script', 'material', 'terrain'].includes(editor.assetType) ||
 			editor.uri !== data.uri
 		) {
 			console.log('[IEProperties] Graph selection rejected', {
@@ -1133,7 +1141,7 @@ class IEPropertiesProvider {
 
 		if (
 			this.activeEditor?.type === 'asset' &&
-			['script', 'material'].includes(
+			['script', 'material', 'terrain'].includes(
 				this.activeEditor.assetType
 			)
 		) {
@@ -1218,7 +1226,7 @@ class IEPropertiesProvider {
 
 					for (const [name, value] of Object.entries(component)) {
 						if (
-							['id', 'type', 'resolvedGeometry', 'resolvedMaterials'].includes(name)
+							['id', 'type', 'resolvedGeometry', 'resolvedMaterials', 'resolvedTerrain', 'terrainRevision', 'terrainError'].includes(name)
 						) continue;
 
 						let type;
@@ -1239,6 +1247,8 @@ class IEPropertiesProvider {
 							name === 'geometry'
 						) {
 							type = 'geometry';
+						} else if (name === 'terrain') {
+							type = 'terrain';
 						} else if (
 							name === 'materials' &&
 							Array.isArray(value)

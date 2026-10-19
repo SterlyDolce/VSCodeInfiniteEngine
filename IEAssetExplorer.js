@@ -10,6 +10,28 @@ class IEAssetExplorer {
 
         this.onDidChangeTreeData =
             this._onDidChangeTreeData.event;
+
+        this.dropMimeTypes = ['text/uri-list'];
+        this.dragMimeTypes = [];
+        this.importHandler = null;
+    }
+
+    setImportHandler(handler) {
+        this.importHandler = handler;
+    }
+
+    async handleDrop(_target, dataTransfer) {
+        const item = dataTransfer.get('text/uri-list');
+        if (!item || !this.importHandler) return;
+
+        const value = await item.asString();
+        const uris = value.split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line && !line.startsWith('#'))
+            .map(line => vscode.Uri.parse(line))
+            .filter(uri => uri.scheme === 'file');
+
+        if (uris.length) await this.importHandler(uris);
     }
 
     refresh(element) {

@@ -1161,6 +1161,101 @@
         );
 
         changed('Pins connected');
+        renderConnectionPanel();
+    }
+
+    function pinEntries(direction) {
+        return nodes().flatMap(node =>
+            (node.pins ?? [])
+                .filter(pin => pin.direction === direction)
+                .map(pin => ({ node, pin }))
+        );
+    }
+
+    function pinLabel(entry) {
+        return `${definition(entry.node).name} · ${entry.pin.name}`;
+    }
+
+    function fillPinSelect(select, entries, emptyLabel) {
+        select.replaceChildren();
+
+        if (!entries.length) {
+            const option = document.createElement('option');
+            option.textContent = emptyLabel;
+            option.value = '';
+            select.appendChild(option);
+            return;
+        }
+
+        for (const entry of entries) {
+            const option = document.createElement('option');
+            option.value = `${entry.node.id}:${entry.pin.id}`;
+            option.textContent = `${pinLabel(entry)} (${entry.pin.type})`;
+            select.appendChild(option);
+        }
+    }
+
+    function entryFromSelect(select, direction) {
+        const [nodeId, pinId] = select.value.split(':');
+        const node = nodes().find(item => item.id === nodeId);
+        const pin = node?.pins?.find(item =>
+            item.id === pinId && item.direction === direction
+        );
+        return node && pin ? { node, pin } : null;
+    }
+
+    function refreshConnectionTargets() {
+        const from = entryFromSelect($('connection-from'), 'output');
+        const candidates = pinEntries('input').filter(entry =>
+            from &&
+            entry.node.id !== from.node.id &&
+            canConnectTypes(from.pin.type, entry.pin.type)
+        );
+        fillPinSelect($('connection-to'), candidates, 'No compatible inputs');
+    }
+
+    function renderConnectionPanel() {
+        if (!$('connection-panel') || $('connection-panel').hidden) return;
+
+        const previousFrom = $('connection-from').value;
+        const outputs = pinEntries('output');
+        fillPinSelect($('connection-from'), outputs, 'No output pins');
+        if ([...$('connection-from').options].some(option => option.value === previousFrom)) {
+            $('connection-from').value = previousFrom;
+        }
+        refreshConnectionTargets();
+
+        const list = $('connection-list');
+        list.replaceChildren();
+        const allPins = new Map(
+            nodes().flatMap(node => (node.pins ?? []).map(pin => [pin.id, { node, pin }]))
+        );
+
+        for (const link of links()) {
+            const from = allPins.get(link.from);
+            const to = allPins.get(link.to);
+            if (!from || !to) continue;
+            const row = document.createElement('div');
+            row.className = 'connection-row';
+            const label = document.createElement('span');
+            label.textContent = `${pinLabel(from)} → ${pinLabel(to)}`;
+            const remove = document.createElement('button');
+            remove.textContent = 'Remove';
+            remove.onclick = () => {
+                removeGraphConnection(link, graph());
+                changed('Connection removed');
+                renderConnectionPanel();
+            };
+            row.append(label, remove);
+            list.appendChild(row);
+        }
+
+        if (!list.children.length) {
+            const empty = document.createElement('p');
+            empty.className = 'muted';
+            empty.textContent = 'No connections yet.';
+            list.appendChild(empty);
+        }
     }
 
 
@@ -2450,6 +2545,23 @@
     $('menu-search').oninput = renderMenu;
     $('back-main').onclick = () => openFunction(null);
     $('fit').onclick = fit;
+    $('connections').onclick = () => {
+        $('connection-panel').hidden = !$('connection-panel').hidden;
+        renderConnectionPanel();
+    };
+    $('close-connections').onclick = () => {
+        $('connection-panel').hidden = true;
+    };
+    $('connection-from').onchange = refreshConnectionTargets;
+    $('add-connection').onclick = () => {
+        const from = entryFromSelect($('connection-from'), 'output');
+        const to = entryFromSelect($('connection-to'), 'input');
+        if (!from || !to) {
+            status('Choose compatible pins first');
+            return;
+        }
+        connect(from, to);
+    };
     $('zoom-in').onclick = () => zoom(1.2);
     $('zoom-out').onclick = () => zoom(1 / 1.2);
 

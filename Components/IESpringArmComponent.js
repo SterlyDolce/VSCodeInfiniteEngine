@@ -10,6 +10,7 @@ class IESpringArmComponent extends IETransformableComponent {
         this.armLength = new IENumber(4);
         this.socketOffset = new IEVector3([0, 0, 0], false);
         this.followActorRotation = new IEBool(false);
+        this.collisionTest = new IEBool(true);
     }
 
     getProperties() {
@@ -38,6 +39,10 @@ class IESpringArmComponent extends IETransformableComponent {
             followActorRotation: {
                 type: 'boolean',
                 exposed: true
+            },
+            collisionTest: {
+                type: 'boolean',
+                exposed: true
             }
         };
     }
@@ -47,7 +52,8 @@ class IESpringArmComponent extends IETransformableComponent {
             ...super.toJSON(),
             armLength: this.armLength.getValue(),
             socketOffset: this.socketOffset.getValue(),
-            followActorRotation: this.followActorRotation.getValue()
+            followActorRotation: this.followActorRotation.getValue(),
+            collisionTest: this.collisionTest.getValue()
         };
     }
 
@@ -66,6 +72,7 @@ class IESpringArmComponent extends IETransformableComponent {
         component.followActorRotation.setValue(
             data.followActorRotation ?? false
         );
+        component.collisionTest.setValue(data.collisionTest ?? true);
 
         return component;
     }

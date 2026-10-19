@@ -4,9 +4,11 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
-const IEAssetManager = require('../IEAssetManager');
+const IEAssetImporter = require('../IEAssetImporter');
 
 class IEModelViewer {
+    static panels = new Map();
+
     constructor(context) {
         this.context = context;
     }
@@ -36,6 +38,10 @@ class IEModelViewer {
 
         panel.title = path.basename(document.uri.fsPath);
         webview.html = await this.getHtml(webview);
+        IEModelViewer.panels.set(document.uri.toString(), {
+            panel,
+            ready: false
+        });
 
         const modelUri = webview.asWebviewUri(document.uri);
 
@@ -46,10 +52,12 @@ class IEModelViewer {
                     : message.type;
                 switch (action) {
                     case 'ready':
+                        IEModelViewer.panels.get(document.uri.toString()).ready = true;
                         await webview.postMessage({
                             type: 'loadModel',
                             uri: modelUri.toString(),
-                            name: path.basename(document.uri.fsPath)
+                            name: path.basename(document.uri.fsPath),
+                            autoImport: IEAssetImporter.consumeModelImport(document.uri)
                         });
                         break;
 
@@ -58,25 +66,24 @@ class IEModelViewer {
                             const workspace =
                                 vscode.workspace.getWorkspaceFolder(
                                     document.uri
-                                );
+                                ) ?? vscode.workspace.workspaceFolders?.[0];
 
                             if (!workspace) {
                                 throw new Error(
-                                    'Model must be inside a project workspace'
+                                    'Open an Infinite Engine project before importing assets'
                                 );
                             }
 
-                            const assetManager = new IEAssetManager(
+                            const importer = new IEAssetImporter(
                                 workspace.uri.fsPath
                             );
 
-                            await assetManager.scan();
-
-                            const result =
-                                await assetManager.saveConvertedAssets(
-                                    message.modelName,
-                                    message.assets
-                                );
+                            const result = await importer.saveAssets(
+                                document.uri.fsPath,
+                                'gltf',
+                                message.assets,
+                                { bundle: message.modelName }
+                            );
 
                             await webview.postMessage({
                                 type: 'conversionComplete',
@@ -104,8 +111,17 @@ class IEModelViewer {
         );
 
         panel.onDidDispose(() => {
+            IEModelViewer.panels.delete(document.uri.toString());
             messageListener.dispose();
         });
+    }
+
+    static async import(uri) {
+        const entry = this.panels.get(uri.toString());
+        if (!entry) throw new Error('The model importer is not ready.');
+        if (!entry.ready) return;
+        IEAssetImporter.consumeModelImport(uri);
+        await entry.panel.webview.postMessage({ type: 'startImport' });
     }
 
     async getHtml(webview) {

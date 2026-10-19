@@ -930,11 +930,16 @@ function renderGraphProperties() {
 
 		for (const pin of node.pins ?? []) {
 			const isMaterial = selection.assetType === 'material';
+			const isWorldAssetOutput =
+				selection.assetType === 'terrain' &&
+				pin.direction === 'output' &&
+				Boolean(pin.assetType);
 
 			if (
 				(
 					pin.direction !== 'input' &&
-					!(isMaterial && pin.direction === 'output')
+					!(isMaterial && pin.direction === 'output') &&
+					!isWorldAssetOutput
 				) ||
 				pin.type === 'execution' ||
 				!Object.hasOwn(pin, 'value')
@@ -1717,6 +1722,7 @@ function createInput(component, name, value, schema) {
 			case 'mesh':
 			case 'script':
 			case 'texture':
+			case 'terrain':
 				input = createAssetSelect(value, type);
 				break;
 
@@ -1900,6 +1906,7 @@ function getDefaultArrayValue(type, schema = {}) {
 		case 'actor':
 		case 'mesh':
 		case 'script':
+		case 'terrain':
 			return null;
 
 		default:
@@ -1917,8 +1924,9 @@ function readTypedArray(container) {
 				'material',
 				'texture',
 				'actor',
-				'mesh',
-				'script'
+		'mesh',
+		'script',
+		'terrain'
 			].includes(type)) {
 				const select = item.querySelector('.asset-select');
 
@@ -2222,7 +2230,8 @@ function bindPropertyInputs() {
 			'script',
 			'actor',
 			'mesh',
-			'texture'
+			'texture',
+			'terrain'
 		].includes(type)) {
 			const select = row.querySelector('.asset-select');
 
