@@ -1,167 +1,1352 @@
 // @ts-nocheck
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { InfiniteGridHelper } from '../IESceneEditor/InfiniteGridHelper.mjs';
-import { createTerrainGraphMaterial, disposeTerrainGraphMaterial } from '../IESceneEditor/TerrainMaterial.mjs';
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { InfiniteGridHelper } from "../IESceneEditor/InfiniteGridHelper.mjs";
+import {
+  createTerrainGraphMaterial,
+  disposeTerrainGraphMaterial,
+} from "../IESceneEditor/TerrainMaterial.mjs";
 
 const vscode = acquireVsCodeApi();
-const $ = id => document.getElementById(id);
-const canvas = $('graph');
-const ctx = canvas.getContext('2d');
-const container = $('graph-wrap');
-const workspace = $('workspace');
-const splitter = $('splitter');
-$('preview').append($('paint-tools'));
-$('preview').append($('brush-list'));
-$('preview').append($('terrain-modes'));
-$('preview').append($('paint-target-wrap'));
-$('preview').append($('sculpt-tools'));
-$('preview').append($('sculpt-brushes'));
+const $ = (id) => document.getElementById(id);
+const canvas = $("graph");
+const ctx = canvas.getContext("2d");
+const container = $("graph-wrap");
+const workspace = $("workspace");
+const splitter = $("splitter");
+$("preview").append($("paint-tools"));
+$("preview").append($("brush-list"));
+$("preview").append($("terrain-modes"));
+$("preview").append($("paint-target-wrap"));
+$("preview").append($("sculpt-tools"));
+$("preview").append($("sculpt-brushes"));
 const restoredState = vscode.getState() ?? {};
-let splitRatio = Math.max(.2, Math.min(.8, restoredState.splitRatio ?? .5));
+let splitRatio = Math.max(0.2, Math.min(0.8, restoredState.splitRatio ?? 0.5));
 function applySplitRatio(ratio, persist = true) {
-    splitRatio = Math.max(.2, Math.min(.8, ratio));
-    workspace.style.gridTemplateColumns = `minmax(220px, ${splitRatio}fr) 7px minmax(220px, ${1 - splitRatio}fr)`;
-    splitter.setAttribute('aria-valuenow', String(Math.round(splitRatio * 100)));
-    if (persist) vscode.setState({ ...restoredState, splitRatio });
+  splitRatio = Math.max(0.2, Math.min(0.8, ratio));
+  workspace.style.gridTemplateColumns = `minmax(220px, ${splitRatio}fr) 7px minmax(220px, ${1 - splitRatio}fr)`;
+  splitter.setAttribute("aria-valuenow", String(Math.round(splitRatio * 100)));
+  if (persist) vscode.setState({ ...restoredState, splitRatio });
 }
 function updateSplitFromPointer(clientX) {
-    const bounds = workspace.getBoundingClientRect();
-    applySplitRatio((clientX - bounds.left - 3.5) / Math.max(1, bounds.width - 7));
+  const bounds = workspace.getBoundingClientRect();
+  applySplitRatio(
+    (clientX - bounds.left - 3.5) / Math.max(1, bounds.width - 7),
+  );
 }
-splitter.onpointerdown = event => {
-    splitter.setPointerCapture(event.pointerId);
-    document.body.classList.add('resizing');
+splitter.onpointerdown = (event) => {
+  splitter.setPointerCapture(event.pointerId);
+  document.body.classList.add("resizing");
+  updateSplitFromPointer(event.clientX);
+};
+splitter.onpointermove = (event) => {
+  if (splitter.hasPointerCapture(event.pointerId))
     updateSplitFromPointer(event.clientX);
 };
-splitter.onpointermove = event => {
-    if (splitter.hasPointerCapture(event.pointerId)) updateSplitFromPointer(event.clientX);
+splitter.onpointerup = splitter.onpointercancel = (event) => {
+  if (splitter.hasPointerCapture(event.pointerId))
+    splitter.releasePointerCapture(event.pointerId);
+  document.body.classList.remove("resizing");
 };
-splitter.onpointerup = splitter.onpointercancel = event => {
-    if (splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId);
-    document.body.classList.remove('resizing');
-};
-splitter.onkeydown = event => {
-    const step = event.shiftKey ? .05 : .02;
-    if (event.key === 'ArrowLeft') applySplitRatio(splitRatio - step);
-    else if (event.key === 'ArrowRight') applySplitRatio(splitRatio + step);
-    else if (event.key === 'Home') applySplitRatio(.2);
-    else if (event.key === 'End') applySplitRatio(.8);
-    else return;
-    event.preventDefault();
+splitter.onkeydown = (event) => {
+  const step = event.shiftKey ? 0.05 : 0.02;
+  if (event.key === "ArrowLeft") applySplitRatio(splitRatio - step);
+  else if (event.key === "ArrowRight") applySplitRatio(splitRatio + step);
+  else if (event.key === "Home") applySplitRatio(0.2);
+  else if (event.key === "End") applySplitRatio(0.8);
+  else return;
+  event.preventDefault();
 };
 applySplitRatio(splitRatio, false);
-const NODE_WIDTH = 190, HEADER_HEIGHT = 36, PIN_HEIGHT = 27;
-const pinColors = { heightmap:'#6cb6ff', geometry:'#e1ae62', terrain:'#68d391', material:'#ef8f62', number:'#e5bc78', string:'#e7d9a8', vector2:'#65c9af', color:'#f2a7bd', texture:'#d7a6ff' };
-let asset = null, definitions = new Map(), selectedNodeId = null, selectedLinkId = null, loadedOnce = false, documentUri = null;
-let dragNode = null, panDrag = null, connection = null, pointer = {x:0,y:0};
-let view = {x:55,y:70,z:.85}, menuWorld = {x:0,y:0}, revision=0, latest=0, saveTimer;
-const nodes=()=>asset?.data?.nodes??[], links=()=>asset?.data?.links??[];
-const color=(name,fallback)=>getComputedStyle(document.documentElement).getPropertyValue('--vscode-'+name).trim()||fallback;
-const theme=()=>({bg:color('editor-background','#1e1e1e'),fg:color('editor-foreground','#ccc'),grid:color('editorIndentGuide-background1','#404040'),node:color('editorWidget-background','#252526'),header:color('sideBar-background','#181818'),border:color('panel-border','#454545'),selected:color('focusBorder','#007fd4'),muted:color('descriptionForeground','#999'),shadow:color('widget-shadow','rgba(0,0,0,.25)')});
-const screenToWorld=(x,y)=>({x:(x-view.x)/view.z,y:(y-view.y)/view.z});
-const worldToScreen=(x,y)=>({x:x*view.z+view.x,y:y*view.z+view.y});
-function nodeHeight(node){return 58+PIN_HEIGHT*Math.max(node.pins.filter(p=>p.direction==='input').length,node.pins.filter(p=>p.direction==='output').length,1)}
-function bounds(node){return{x:node.position[0],y:node.position[1],w:NODE_WIDTH,h:nodeHeight(node)}}
-function pinPosition(node,pin){const same=node.pins.filter(p=>p.direction===pin.direction),index=same.indexOf(pin),b=bounds(node);return{x:b.x+(pin.direction==='output'?b.w:0),y:b.y+58+index*PIN_HEIGHT}}
-function findPin(id){for(const node of nodes()){const pin=node.pins.find(p=>p.id===id);if(pin)return{node,pin}}return null}
-function nodeAt(point){return[...nodes()].reverse().find(node=>{const b=bounds(node);return point.x>=b.x&&point.x<=b.x+b.w&&point.y>=b.y&&point.y<=b.y+b.h})}
-function pinAt(point){const radius=11/view.z;for(const node of [...nodes()].reverse())for(const pin of node.pins){const p=pinPosition(node,pin);if(Math.hypot(point.x-p.x,point.y-p.y)<=radius)return{node,pin}}return null}
-function bezier(a,b,stroke,width=2){ctx.strokeStyle=stroke;ctx.lineWidth=width/view.z;ctx.beginPath();ctx.moveTo(a.x,a.y);const bend=Math.max(55,Math.abs(b.x-a.x)*.45);ctx.bezierCurveTo(a.x+bend,a.y,b.x-bend,b.y,b.x,b.y);ctx.stroke()}
-function draw(){if(!asset)return;const ratio=Math.min(devicePixelRatio||1,2),w=canvas.width/ratio,h=canvas.height/ratio,t=theme();ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,w,h);ctx.fillStyle=t.bg;ctx.fillRect(0,0,w,h);const spacing=26*view.z,ox=((view.x%spacing)+spacing)%spacing,oy=((view.y%spacing)+spacing)%spacing;ctx.fillStyle=t.grid;for(let x=ox;x<w;x+=spacing)for(let y=oy;y<h;y+=spacing){ctx.beginPath();ctx.arc(x,y,.85,0,Math.PI*2);ctx.fill()}ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.z,view.z);
- for(const link of links()){const a=findPin(link.from),b=findPin(link.to);if(!a||!b)continue;bezier(pinPosition(a.node,a.pin),pinPosition(b.node,b.pin),link.id===selectedLinkId?t.selected:(pinColors[a.pin.type]||t.muted),link.id===selectedLinkId?4:2)}
- if(connection){const origin=pinPosition(connection.node,connection.pin),target=screenToWorld(pointer.x,pointer.y),a=connection.pin.direction==='output'?origin:target,b=connection.pin.direction==='output'?target:origin;bezier(a,b,pinColors[connection.pin.type]||t.muted,2)}
- for(const node of nodes()){const b=bounds(node),def=definitions.get(node.type),selected=node.id===selectedNodeId,categoryColors={Assets:'#9b72cf',Generators:'#0e82d5',Geometry:'#0e82d5',Output:'#5cc5aa'},headerColor=categoryColors[def?.category]??t.selected;ctx.save();ctx.shadowColor=t.shadow;ctx.shadowBlur=16;ctx.shadowOffsetY=6;ctx.beginPath();ctx.roundRect(b.x,b.y,b.w,b.h,9);ctx.fillStyle=t.node;ctx.fill();ctx.strokeStyle=selected?t.selected:t.border;ctx.lineWidth=selected?2:1;ctx.stroke();ctx.restore();ctx.save();ctx.beginPath();ctx.roundRect(b.x,b.y,b.w,b.h,9);ctx.clip();ctx.fillStyle=headerColor;ctx.fillRect(b.x,b.y,b.w,HEADER_HEIGHT);ctx.restore();ctx.beginPath();ctx.moveTo(b.x,b.y+HEADER_HEIGHT);ctx.lineTo(b.x+b.w,b.y+HEADER_HEIGHT);ctx.strokeStyle=t.border;ctx.lineWidth=1;ctx.stroke();ctx.fillStyle='#fff';ctx.font='600 12px '+getComputedStyle(document.documentElement).fontFamily;ctx.textAlign='left';ctx.fillText(def?.name??node.type,b.x+12,b.y+HEADER_HEIGHT/2+4);
-  for(const pin of node.pins){const p=pinPosition(node,pin);ctx.fillStyle=pinColors[pin.type]||t.muted;ctx.strokeStyle=t.node;ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,5.7,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle=t.fg;ctx.font='11px '+getComputedStyle(document.documentElement).fontFamily;ctx.textAlign=pin.direction==='input'?'left':'right';ctx.fillText(pin.name,p.x+(pin.direction==='input'?12:-12),p.y+4)}
- }ctx.restore();$('zoom-label').textContent=Math.round(view.z*100)+'%'}
-function resize(){const r=canvas.getBoundingClientRect(),ratio=devicePixelRatio||1;canvas.width=Math.max(1,Math.round(r.width*ratio));canvas.height=Math.max(1,Math.round(r.height*ratio));draw();renderer.setSize($('preview').clientWidth,$('preview').clientHeight,false);camera.aspect=Math.max(.1,$('preview').clientWidth/Math.max(1,$('preview').clientHeight));camera.updateProjectionMatrix()}
-function linkAt(point){let best=null,distance=10/view.z;for(const link of links()){const a=findPin(link.from),b=findPin(link.to);if(!a||!b)continue;const p=pinPosition(a.node,a.pin),q=pinPosition(b.node,b.pin);for(let i=0;i<=30;i++){const t=i/30,u=1-t,bend=Math.max(55,Math.abs(q.x-p.x)*.45),x=u*u*u*p.x+3*u*u*t*(p.x+bend)+3*u*t*t*(q.x-bend)+t*t*t*q.x,y=u*u*u*p.y+3*u*u*t*p.y+3*u*t*t*q.y+t*t*t*q.y,d=Math.hypot(point.x-x,point.y-y);if(d<distance){distance=d;best=link}}}return best}
-function changed(){revision++;latest=revision;updatePaintTargets();updateTerrainModes();draw();showProperties();clearTimeout(saveTimer);saveTimer=setTimeout(()=>vscode.postMessage({type:'save',graph:asset.data,revision}),120);status('Generating…')}
-function createNode(type){const def=definitions.get(type);if(!def)return;if(def.unique&&nodes().some(n=>n.type===type)){status('Only one '+def.name+' is allowed',true);return}const node={id:crypto.randomUUID(),type,position:[menuWorld.x,menuWorld.y],pins:[]};for(const pin of def.inputs??[])node.pins.push({id:crypto.randomUUID(),direction:'input',...structuredClone(pin)});for(const pin of def.outputs??[])node.pins.push({id:crypto.randomUUID(),direction:'output',...structuredClone(pin)});nodes().push(node);selectedNodeId=node.id;selectedLinkId=null;closeMenu();changed()}
-function duplicateSelectedNode(){
-    if(!asset||!selectedNodeId)return;
-    const original=nodes().find(node=>node.id===selectedNodeId);
-    if(!original)return;
-    const definition=definitions.get(original.type);
-    if(definition?.unique){status((definition.name??original.type)+' cannot be duplicated',true);return}
-    const duplicate=structuredClone(original);
-    duplicate.id=crypto.randomUUID();
-    duplicate.position=[original.position[0]+32,original.position[1]+32];
-    duplicate.pins=(duplicate.pins??[]).map(pin=>({...pin,id:crypto.randomUUID()}));
-    nodes().push(duplicate);
-    selectedNodeId=duplicate.id;
-    selectedLinkId=null;
-    changed();
-    status('Node duplicated');
+const NODE_WIDTH = 190,
+  HEADER_HEIGHT = 36,
+  PIN_HEIGHT = 27;
+const pinColors = {
+  heightmap: "#6cb6ff",
+  geometry: "#e1ae62",
+  terrain: "#68d391",
+  material: "#ef8f62",
+  number: "#e5bc78",
+  string: "#e7d9a8",
+  vector2: "#65c9af",
+  color: "#f2a7bd",
+  texture: "#d7a6ff",
+};
+let asset = null,
+  definitions = new Map(),
+  selectedNodeId = null,
+  selectedLinkId = null,
+  loadedOnce = false,
+  documentUri = null;
+let dragNode = null,
+  panDrag = null,
+  connection = null,
+  pointer = { x: 0, y: 0 };
+let view = { x: 55, y: 70, z: 0.85 },
+  menuWorld = { x: 0, y: 0 },
+  revision = 0,
+  latest = 0,
+  saveTimer;
+const nodes = () => asset?.data?.nodes ?? [],
+  links = () => asset?.data?.links ?? [];
+const color = (name, fallback) =>
+  getComputedStyle(document.documentElement)
+    .getPropertyValue("--vscode-" + name)
+    .trim() || fallback;
+const theme = () => ({
+  bg: color("editor-background", "#1e1e1e"),
+  fg: color("editor-foreground", "#ccc"),
+  grid: color("editorIndentGuide-background1", "#404040"),
+  node: color("editorWidget-background", "#252526"),
+  header: color("sideBar-background", "#181818"),
+  border: color("panel-border", "#454545"),
+  selected: color("focusBorder", "#007fd4"),
+  muted: color("descriptionForeground", "#999"),
+  shadow: color("widget-shadow", "rgba(0,0,0,.25)"),
+});
+const screenToWorld = (x, y) => ({
+  x: (x - view.x) / view.z,
+  y: (y - view.y) / view.z,
+});
+const worldToScreen = (x, y) => ({
+  x: x * view.z + view.x,
+  y: y * view.z + view.y,
+});
+function nodeHeight(node) {
+  return (
+    58 +
+    PIN_HEIGHT *
+      Math.max(
+        node.pins.filter((p) => p.direction === "input").length,
+        node.pins.filter((p) => p.direction === "output").length,
+        1,
+      )
+  );
 }
-function reconcileNodePins(){let updated=false;for(const node of nodes()){const definition=definitions.get(node.type);if(!definition)continue;for(const direction of ['input','output'])for(const pinDefinition of definition[direction+'s']??[]){if(node.pins.some(pin=>pin.direction===direction&&pin.name===pinDefinition.name))continue;node.pins.push({id:crypto.randomUUID(),direction,...structuredClone(pinDefinition)});updated=true}}return updated}
-function renderMenu(){const query=$('menu-search').value.trim().toLowerCase(),items=[...definitions.values()].filter(d=>!query||(d.name+' '+d.category).toLowerCase().includes(query)),groups=new Map(),root=$('menu-items');for(const item of items){const category=item.category??'World';if(!groups.has(category))groups.set(category,[]);groups.get(category).push(item)}root.replaceChildren();for(const[category,defs]of groups){const heading=document.createElement('div');heading.className='menu-category';heading.textContent=category;root.append(heading);for(const def of defs){const button=document.createElement('button');button.className='menu-item';button.textContent=def.name;button.onclick=()=>createNode(def.type);root.append(button)}}}
-function openMenu(x,y){const popup=$('node-menu'),rect=container.getBoundingClientRect();menuWorld=screenToWorld(x,y);popup.style.left=Math.min(x,rect.width-245)+'px';popup.style.top=Math.min(y,rect.height-330)+'px';popup.hidden=false;$('menu-search').value='';renderMenu();$('menu-search').focus()}
-function closeMenu(){$('node-menu').hidden=true;canvas.focus()}
-function showProperties(){const node=nodes().find(n=>n.id===selectedNodeId);updatePaintTools(node);if(!node){vscode.postMessage({type:'graphSelection',uri:documentUri,selection:null});return}const def=definitions.get(node.type);const connectedPinIds=links().map(link=>link.to);const pinSchemas={};for(const pin of node.pins??[]){const definitionPin=[...(def?.inputs??[]),...(def?.outputs??[])].find(candidate=>candidate.name===pin.name)??pin;const schema=structuredClone(definitionPin);if(pin.assetType){schema.type='asset';schema.assetType=pin.assetType}pinSchemas[pin.id]=schema}vscode.postMessage({type:'graphSelection',uri:documentUri,selection:{type:'node',id:node.id,name:def?.name??node.type,value:structuredClone(node),connectedPinIds,pinSchemas,assetType:'terrain'}})}
-function fitGraph(){if(!nodes().length){view={x:55,y:70,z:.85};draw();return}let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(const n of nodes()){const b=bounds(n);minX=Math.min(minX,b.x);minY=Math.min(minY,b.y);maxX=Math.max(maxX,b.x+b.w);maxY=Math.max(maxY,b.y+b.h)}const rect=canvas.getBoundingClientRect(),padding=90;view.z=Math.max(.25,Math.min(1.5,Math.min((rect.width-padding)/(maxX-minX),(rect.height-padding)/(maxY-minY))));view.x=(rect.width-(minX+maxX)*view.z)/2;view.y=(rect.height-(minY+maxY)*view.z)/2;draw()}
-function setZoom(next,cx=canvas.clientWidth/2,cy=canvas.clientHeight/2){const before=screenToWorld(cx,cy);view.z=Math.max(.25,Math.min(2,next));view.x=cx-before.x*view.z;view.y=cy-before.y*view.z;draw()}
-canvas.tabIndex=0;canvas.onpointerdown=e=>{closeMenu();pointer={x:e.offsetX,y:e.offsetY};const world=screenToWorld(pointer.x,pointer.y),pin=pinAt(world);if(pin){connection=pin;canvas.setPointerCapture(e.pointerId);draw();return}const node=nodeAt(world);if(node){selectedNodeId=node.id;selectedLinkId=null;dragNode={node,start:[...node.position],pointer:world};showProperties();canvas.setPointerCapture(e.pointerId);draw();return}const link=linkAt(world);if(link){selectedLinkId=link.id;selectedNodeId=null;showProperties();draw();return}selectedNodeId=null;selectedLinkId=null;showProperties();panDrag={x:e.clientX,y:e.clientY,start:{x:view.x,y:view.y}};canvas.classList.add('dragging');canvas.setPointerCapture(e.pointerId);draw()};
-canvas.onpointermove=e=>{pointer={x:e.offsetX,y:e.offsetY};if(dragNode){const world=screenToWorld(pointer.x,pointer.y);dragNode.node.position=[dragNode.start[0]+world.x-dragNode.pointer.x,dragNode.start[1]+world.y-dragNode.pointer.y];draw()}else if(panDrag){view.x=panDrag.start.x+e.clientX-panDrag.x;view.y=panDrag.start.y+e.clientY-panDrag.y;draw()}else if(connection)draw()};
-canvas.onpointerup=e=>{const moved=Boolean(dragNode&&(dragNode.node.position[0]!==dragNode.start[0]||dragNode.node.position[1]!==dragNode.start[1]));if(connection){const target=pinAt(screenToWorld(e.offsetX,e.offsetY));if(target&&target.pin.id!==connection.pin.id&&target.pin.direction!==connection.pin.direction&&target.pin.type===connection.pin.type){const from=connection.pin.direction==='output'?connection.pin:target.pin,to=connection.pin.direction==='input'?connection.pin:target.pin;asset.data.links=links().filter(l=>l.to!==to.id);asset.data.links.push({id:crypto.randomUUID(),from:from.id,to:to.id});changed()}else if(target&&target.pin.type!==connection.pin.type)status('Incompatible connection: '+connection.pin.type+' → '+target.pin.type,true);connection=null;draw()}if(moved)changed();dragNode=null;panDrag=null;canvas.classList.remove('dragging')};canvas.onpointercancel=()=>{dragNode=null;panDrag=null;connection=null;canvas.classList.remove('dragging');draw()};
-canvas.oncontextmenu=e=>{e.preventDefault();openMenu(e.offsetX,e.offsetY)};canvas.ondblclick=e=>{if(!nodeAt(screenToWorld(e.offsetX,e.offsetY)))openMenu(e.offsetX,e.offsetY)};canvas.onwheel=e=>{e.preventDefault();setZoom(view.z*Math.exp(-e.deltaY*.001),e.offsetX,e.offsetY)};
-window.addEventListener('keydown',e=>{const focused=document.activeElement;if(focused?.matches('input,select,textarea'))return;if(e.code==='KeyD'&&e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.repeat){e.preventDefault();duplicateSelectedNode();return}if(e.key==='Escape'){connection=null;closeMenu();draw();return}if((e.key==='Delete'||e.key==='Backspace')&&document.activeElement===canvas){if(selectedLinkId){asset.data.links=links().filter(l=>l.id!==selectedLinkId);selectedLinkId=null;changed()}else if(selectedNodeId){const node=nodes().find(n=>n.id===selectedNodeId);if(node?.type==='world.terrainOutput'){status('Terrain Output is required',true);return}const pins=new Set(node?.pins.map(p=>p.id)??[]);asset.data.nodes=nodes().filter(n=>n.id!==selectedNodeId);asset.data.links=links().filter(l=>!pins.has(l.from)&&!pins.has(l.to));selectedNodeId=null;changed()}}});
-$('menu-search').oninput=renderMenu;$('graph-fit').onclick=fitGraph;$('zoom-in').onclick=()=>setZoom(view.z*1.2);$('zoom-out').onclick=()=>setZoom(view.z/1.2);
-function status(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error)}
+function bounds(node) {
+  return {
+    x: node.position[0],
+    y: node.position[1],
+    w: NODE_WIDTH,
+    h: nodeHeight(node),
+  };
+}
+function pinPosition(node, pin) {
+  const same = node.pins.filter((p) => p.direction === pin.direction),
+    index = same.indexOf(pin),
+    b = bounds(node);
+  return {
+    x: b.x + (pin.direction === "output" ? b.w : 0),
+    y: b.y + 58 + index * PIN_HEIGHT,
+  };
+}
+function findPin(id) {
+  for (const node of nodes()) {
+    const pin = node.pins.find((p) => p.id === id);
+    if (pin) return { node, pin };
+  }
+  return null;
+}
+function nodeAt(point) {
+  return [...nodes()].reverse().find((node) => {
+    const b = bounds(node);
+    return (
+      point.x >= b.x &&
+      point.x <= b.x + b.w &&
+      point.y >= b.y &&
+      point.y <= b.y + b.h
+    );
+  });
+}
+function pinAt(point) {
+  const radius = 11 / view.z;
+  for (const node of [...nodes()].reverse())
+    for (const pin of node.pins) {
+      const p = pinPosition(node, pin);
+      if (Math.hypot(point.x - p.x, point.y - p.y) <= radius)
+        return { node, pin };
+    }
+  return null;
+}
+function bezier(a, b, stroke, width = 2) {
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = width / view.z;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  const bend = Math.max(55, Math.abs(b.x - a.x) * 0.45);
+  ctx.bezierCurveTo(a.x + bend, a.y, b.x - bend, b.y, b.x, b.y);
+  ctx.stroke();
+}
+function draw() {
+  if (!asset) return;
+  const ratio = Math.min(devicePixelRatio || 1, 2),
+    w = canvas.width / ratio,
+    h = canvas.height / ratio,
+    t = theme();
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = t.bg;
+  ctx.fillRect(0, 0, w, h);
+  const spacing = 26 * view.z,
+    ox = ((view.x % spacing) + spacing) % spacing,
+    oy = ((view.y % spacing) + spacing) % spacing;
+  ctx.fillStyle = t.grid;
+  for (let x = ox; x < w; x += spacing)
+    for (let y = oy; y < h; y += spacing) {
+      ctx.beginPath();
+      ctx.arc(x, y, 0.85, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  ctx.save();
+  ctx.translate(view.x, view.y);
+  ctx.scale(view.z, view.z);
+  for (const link of links()) {
+    const a = findPin(link.from),
+      b = findPin(link.to);
+    if (!a || !b) continue;
+    bezier(
+      pinPosition(a.node, a.pin),
+      pinPosition(b.node, b.pin),
+      link.id === selectedLinkId
+        ? t.selected
+        : pinColors[a.pin.type] || t.muted,
+      link.id === selectedLinkId ? 4 : 2,
+    );
+  }
+  if (connection) {
+    const origin = pinPosition(connection.node, connection.pin),
+      target = screenToWorld(pointer.x, pointer.y),
+      a = connection.pin.direction === "output" ? origin : target,
+      b = connection.pin.direction === "output" ? target : origin;
+    bezier(a, b, pinColors[connection.pin.type] || t.muted, 2);
+  }
+  for (const node of nodes()) {
+    const b = bounds(node),
+      def = definitions.get(node.type),
+      selected = node.id === selectedNodeId,
+      categoryColors = {
+        Assets: "#9b72cf",
+        Generators: "#0e82d5",
+        Geometry: "#0e82d5",
+        Output: "#5cc5aa",
+      },
+      headerColor = categoryColors[def?.category] ?? t.selected;
+    ctx.save();
+    ctx.shadowColor = t.shadow;
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 6;
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, 9);
+    ctx.fillStyle = t.node;
+    ctx.fill();
+    ctx.strokeStyle = selected ? t.selected : t.border;
+    ctx.lineWidth = selected ? 2 : 1;
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, 9);
+    ctx.clip();
+    ctx.fillStyle = headerColor;
+    ctx.fillRect(b.x, b.y, b.w, HEADER_HEIGHT);
+    ctx.restore();
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y + HEADER_HEIGHT);
+    ctx.lineTo(b.x + b.w, b.y + HEADER_HEIGHT);
+    ctx.strokeStyle = t.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font =
+      "600 12px " + getComputedStyle(document.documentElement).fontFamily;
+    ctx.textAlign = "left";
+    ctx.fillText(def?.name ?? node.type, b.x + 12, b.y + HEADER_HEIGHT / 2 + 4);
+    for (const pin of node.pins) {
+      const p = pinPosition(node, pin);
+      ctx.fillStyle = pinColors[pin.type] || t.muted;
+      ctx.strokeStyle = t.node;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = t.fg;
+      ctx.font =
+        "11px " + getComputedStyle(document.documentElement).fontFamily;
+      ctx.textAlign = pin.direction === "input" ? "left" : "right";
+      ctx.fillText(
+        pin.name,
+        p.x + (pin.direction === "input" ? 12 : -12),
+        p.y + 4,
+      );
+    }
+  }
+  ctx.restore();
+  $("zoom-label").textContent = Math.round(view.z * 100) + "%";
+}
+function resize() {
+  const r = canvas.getBoundingClientRect(),
+    ratio = devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(r.width * ratio));
+  canvas.height = Math.max(1, Math.round(r.height * ratio));
+  draw();
+  renderer.setSize($("preview").clientWidth, $("preview").clientHeight, false);
+  camera.aspect = Math.max(
+    0.1,
+    $("preview").clientWidth / Math.max(1, $("preview").clientHeight),
+  );
+  camera.updateProjectionMatrix();
+}
+function linkAt(point) {
+  let best = null,
+    distance = 10 / view.z;
+  for (const link of links()) {
+    const a = findPin(link.from),
+      b = findPin(link.to);
+    if (!a || !b) continue;
+    const p = pinPosition(a.node, a.pin),
+      q = pinPosition(b.node, b.pin);
+    for (let i = 0; i <= 30; i++) {
+      const t = i / 30,
+        u = 1 - t,
+        bend = Math.max(55, Math.abs(q.x - p.x) * 0.45),
+        x =
+          u * u * u * p.x +
+          3 * u * u * t * (p.x + bend) +
+          3 * u * t * t * (q.x - bend) +
+          t * t * t * q.x,
+        y =
+          u * u * u * p.y +
+          3 * u * u * t * p.y +
+          3 * u * t * t * q.y +
+          t * t * t * q.y,
+        d = Math.hypot(point.x - x, point.y - y);
+      if (d < distance) {
+        distance = d;
+        best = link;
+      }
+    }
+  }
+  return best;
+}
+function changed() {
+  revision++;
+  latest = revision;
+  updatePaintTargets();
+  updateTerrainModes();
+  draw();
+  showProperties();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(
+    () => vscode.postMessage({ type: "save", graph: asset.data, revision }),
+    120,
+  );
+  status("Generating…");
+}
+function createNode(type) {
+  const def = definitions.get(type);
+  if (!def) return;
+  if (def.unique && nodes().some((n) => n.type === type)) {
+    status("Only one " + def.name + " is allowed", true);
+    return;
+  }
+  const node = {
+    id: crypto.randomUUID(),
+    type,
+    position: [menuWorld.x, menuWorld.y],
+    pins: [],
+  };
+  for (const pin of def.inputs ?? [])
+    node.pins.push({
+      id: crypto.randomUUID(),
+      direction: "input",
+      ...structuredClone(pin),
+    });
+  for (const pin of def.outputs ?? [])
+    node.pins.push({
+      id: crypto.randomUUID(),
+      direction: "output",
+      ...structuredClone(pin),
+    });
+  nodes().push(node);
+  selectedNodeId = node.id;
+  selectedLinkId = null;
+  closeMenu();
+  changed();
+}
+function duplicateSelectedNode() {
+  if (!asset || !selectedNodeId) return;
+  const original = nodes().find((node) => node.id === selectedNodeId);
+  if (!original) return;
+  const definition = definitions.get(original.type);
+  if (definition?.unique) {
+    status((definition.name ?? original.type) + " cannot be duplicated", true);
+    return;
+  }
+  const duplicate = structuredClone(original);
+  duplicate.id = crypto.randomUUID();
+  duplicate.position = [original.position[0] + 32, original.position[1] + 32];
+  duplicate.pins = (duplicate.pins ?? []).map((pin) => ({
+    ...pin,
+    id: crypto.randomUUID(),
+  }));
+  nodes().push(duplicate);
+  selectedNodeId = duplicate.id;
+  selectedLinkId = null;
+  changed();
+  status("Node duplicated");
+}
+function reconcileNodePins() {
+  let updated = false;
+  for (const node of nodes()) {
+    const definition = definitions.get(node.type);
+    if (!definition) continue;
+    for (const direction of ["input", "output"])
+      for (const pinDefinition of definition[direction + "s"] ?? []) {
+        if (
+          node.pins.some(
+            (pin) =>
+              pin.direction === direction && pin.name === pinDefinition.name,
+          )
+        )
+          continue;
+        node.pins.push({
+          id: crypto.randomUUID(),
+          direction,
+          ...structuredClone(pinDefinition),
+        });
+        updated = true;
+      }
+  }
+  return updated;
+}
+function renderMenu() {
+  const query = $("menu-search").value.trim().toLowerCase(),
+    items = [...definitions.values()].filter(
+      (d) =>
+        !query || (d.name + " " + d.category).toLowerCase().includes(query),
+    ),
+    groups = new Map(),
+    root = $("menu-items");
+  for (const item of items) {
+    const category = item.category ?? "World";
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(item);
+  }
+  root.replaceChildren();
+  for (const [category, defs] of groups) {
+    const heading = document.createElement("div");
+    heading.className = "menu-category";
+    heading.textContent = category;
+    root.append(heading);
+    for (const def of defs) {
+      const button = document.createElement("button");
+      button.className = "menu-item";
+      button.textContent = def.name;
+      button.onclick = () => createNode(def.type);
+      root.append(button);
+    }
+  }
+}
+function openMenu(x, y) {
+  const popup = $("node-menu"),
+    rect = container.getBoundingClientRect();
+  menuWorld = screenToWorld(x, y);
+  popup.style.left = Math.min(x, rect.width - 245) + "px";
+  popup.style.top = Math.min(y, rect.height - 330) + "px";
+  popup.hidden = false;
+  $("menu-search").value = "";
+  renderMenu();
+  $("menu-search").focus();
+}
+function closeMenu() {
+  $("node-menu").hidden = true;
+  canvas.focus();
+}
+function showProperties() {
+  const node = nodes().find((n) => n.id === selectedNodeId);
+  updatePaintTools(node);
+  if (!node) {
+    vscode.postMessage({
+      type: "graphSelection",
+      uri: documentUri,
+      selection: null,
+    });
+    return;
+  }
+  const def = definitions.get(node.type);
+  const connectedPinIds = links().map((link) => link.to);
+  const pinSchemas = {};
+  for (const pin of node.pins ?? []) {
+    const definitionPin =
+      [...(def?.inputs ?? []), ...(def?.outputs ?? [])].find(
+        (candidate) => candidate.name === pin.name,
+      ) ?? pin;
+    const schema = structuredClone(definitionPin);
+    if (pin.assetType) {
+      schema.type = "asset";
+      schema.assetType = pin.assetType;
+    }
+    pinSchemas[pin.id] = schema;
+  }
+  vscode.postMessage({
+    type: "graphSelection",
+    uri: documentUri,
+    selection: {
+      type: "node",
+      id: node.id,
+      name: def?.name ?? node.type,
+      value: structuredClone(node),
+      connectedPinIds,
+      pinSchemas,
+      assetType: "terrain",
+    },
+  });
+}
+function fitGraph() {
+  if (!nodes().length) {
+    view = { x: 55, y: 70, z: 0.85 };
+    draw();
+    return;
+  }
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const n of nodes()) {
+    const b = bounds(n);
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w);
+    maxY = Math.max(maxY, b.y + b.h);
+  }
+  const rect = canvas.getBoundingClientRect(),
+    padding = 90;
+  view.z = Math.max(
+    0.25,
+    Math.min(
+      1.5,
+      Math.min(
+        (rect.width - padding) / (maxX - minX),
+        (rect.height - padding) / (maxY - minY),
+      ),
+    ),
+  );
+  view.x = (rect.width - (minX + maxX) * view.z) / 2;
+  view.y = (rect.height - (minY + maxY) * view.z) / 2;
+  draw();
+}
+function setZoom(
+  next,
+  cx = canvas.clientWidth / 2,
+  cy = canvas.clientHeight / 2,
+) {
+  const before = screenToWorld(cx, cy);
+  view.z = Math.max(0.25, Math.min(2, next));
+  view.x = cx - before.x * view.z;
+  view.y = cy - before.y * view.z;
+  draw();
+}
+canvas.tabIndex = 0;
+canvas.onpointerdown = (e) => {
+  closeMenu();
+  pointer = { x: e.offsetX, y: e.offsetY };
+  const world = screenToWorld(pointer.x, pointer.y),
+    pin = pinAt(world);
+  if (pin) {
+    connection = pin;
+    canvas.setPointerCapture(e.pointerId);
+    draw();
+    return;
+  }
+  const node = nodeAt(world);
+  if (node) {
+    selectedNodeId = node.id;
+    selectedLinkId = null;
+    dragNode = { node, start: [...node.position], pointer: world };
+    showProperties();
+    canvas.setPointerCapture(e.pointerId);
+    draw();
+    return;
+  }
+  const link = linkAt(world);
+  if (link) {
+    selectedLinkId = link.id;
+    selectedNodeId = null;
+    showProperties();
+    draw();
+    return;
+  }
+  selectedNodeId = null;
+  selectedLinkId = null;
+  showProperties();
+  panDrag = { x: e.clientX, y: e.clientY, start: { x: view.x, y: view.y } };
+  canvas.classList.add("dragging");
+  canvas.setPointerCapture(e.pointerId);
+  draw();
+};
+canvas.onpointermove = (e) => {
+  pointer = { x: e.offsetX, y: e.offsetY };
+  if (dragNode) {
+    const world = screenToWorld(pointer.x, pointer.y);
+    dragNode.node.position = [
+      dragNode.start[0] + world.x - dragNode.pointer.x,
+      dragNode.start[1] + world.y - dragNode.pointer.y,
+    ];
+    draw();
+  } else if (panDrag) {
+    view.x = panDrag.start.x + e.clientX - panDrag.x;
+    view.y = panDrag.start.y + e.clientY - panDrag.y;
+    draw();
+  } else if (connection) draw();
+};
+canvas.onpointerup = (e) => {
+  const moved = Boolean(
+    dragNode &&
+      (dragNode.node.position[0] !== dragNode.start[0] ||
+        dragNode.node.position[1] !== dragNode.start[1]),
+  );
+  if (connection) {
+    const target = pinAt(screenToWorld(e.offsetX, e.offsetY));
+    if (
+      target &&
+      target.pin.id !== connection.pin.id &&
+      target.pin.direction !== connection.pin.direction &&
+      target.pin.type === connection.pin.type
+    ) {
+      const from =
+          connection.pin.direction === "output" ? connection.pin : target.pin,
+        to = connection.pin.direction === "input" ? connection.pin : target.pin;
+      asset.data.links = links().filter((l) => l.to !== to.id);
+      asset.data.links.push({
+        id: crypto.randomUUID(),
+        from: from.id,
+        to: to.id,
+      });
+      changed();
+    } else if (target && target.pin.type !== connection.pin.type)
+      status(
+        "Incompatible connection: " +
+          connection.pin.type +
+          " → " +
+          target.pin.type,
+        true,
+      );
+    connection = null;
+    draw();
+  }
+  if (moved) changed();
+  dragNode = null;
+  panDrag = null;
+  canvas.classList.remove("dragging");
+};
+canvas.onpointercancel = () => {
+  dragNode = null;
+  panDrag = null;
+  connection = null;
+  canvas.classList.remove("dragging");
+  draw();
+};
+canvas.oncontextmenu = (e) => {
+  e.preventDefault();
+  openMenu(e.offsetX, e.offsetY);
+};
+canvas.ondblclick = (e) => {
+  if (!nodeAt(screenToWorld(e.offsetX, e.offsetY)))
+    openMenu(e.offsetX, e.offsetY);
+};
+canvas.onwheel = (e) => {
+  e.preventDefault();
+  setZoom(view.z * Math.exp(-e.deltaY * 0.001), e.offsetX, e.offsetY);
+};
+window.addEventListener("keydown", (e) => {
+  const focused = document.activeElement;
+  if (focused?.matches("input,select,textarea")) return;
+  if (
+    e.code === "KeyD" &&
+    e.shiftKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey &&
+    !e.repeat
+  ) {
+    e.preventDefault();
+    duplicateSelectedNode();
+    return;
+  }
+  if (e.key === "Escape") {
+    connection = null;
+    closeMenu();
+    draw();
+    return;
+  }
+  if (
+    (e.key === "Delete" || e.key === "Backspace") &&
+    document.activeElement === canvas
+  ) {
+    if (selectedLinkId) {
+      asset.data.links = links().filter((l) => l.id !== selectedLinkId);
+      selectedLinkId = null;
+      changed();
+    } else if (selectedNodeId) {
+      const node = nodes().find((n) => n.id === selectedNodeId);
+      if (node?.type === "world.terrainOutput") {
+        status("Terrain Output is required", true);
+        return;
+      }
+      const pins = new Set(node?.pins.map((p) => p.id) ?? []);
+      asset.data.nodes = nodes().filter((n) => n.id !== selectedNodeId);
+      asset.data.links = links().filter(
+        (l) => !pins.has(l.from) && !pins.has(l.to),
+      );
+      selectedNodeId = null;
+      changed();
+    }
+  }
+});
+$("menu-search").oninput = renderMenu;
+$("graph-fit").onclick = fitGraph;
+$("zoom-in").onclick = () => setZoom(view.z * 1.2);
+$("zoom-out").onclick = () => setZoom(view.z / 1.2);
+function status(text, error = false) {
+  $("status").textContent = text;
+  $("status").classList.toggle("error", error);
+}
 
-const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(55,1,.1,5000),renderer=new THREE.WebGLRenderer({antialias:true}),controls=new OrbitControls(camera,renderer.domElement);renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));camera.position.set(80,60,80);scene.background=new THREE.Color(0x17191c);scene.add(new THREE.AmbientLight(0xffffff,1.2));const sun=new THREE.DirectionalLight(0xffffff,2);sun.position.set(60,100,40);scene.add(sun);scene.add(new InfiniteGridHelper(20,200,new THREE.Color(0x555555),1000));$('preview').append(renderer.domElement);let mesh=null,wire=false,renderRequested=true;const requestRender=()=>{renderRequested=true};controls.addEventListener('change',requestRender);
-const PAINT_MASK_SIZE=1024,PAINT_BRUSH_REFERENCE_SIZE=512;
-const paintCanvas=document.createElement('canvas'),paintContext=paintCanvas.getContext('2d',{willReadFrequently:true});
-const raycaster=new THREE.Raycaster(),paintPointer=new THREE.Vector2();
-const brushPreview=new THREE.Mesh(new THREE.RingGeometry(.82,1,64),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.9,side:THREE.DoubleSide,depthTest:false}));
-brushPreview.visible=false;brushPreview.renderOrder=1000;scene.add(brushPreview);
-let paintMode=false,painting=false,paintTextureId=null,loadedPaintTextureId=null;
-let editorMode='preview';
-let textureAssetNames=new Map();
-let sculptModeActive=false,sculpting=false,sculptBrush='raise',pendingSculptStrokes=[];
-function selectedTextureNode(){return nodes().find(node=>node.id===selectedNodeId&&node.type==='world.textureAsset')??null}
-function textureNodeValue(node){const value=node?.pins?.find(pin=>pin.direction==='output'&&pin.name==='Texture')?.value;return typeof value==='string'?value:value?.id}
-function hasHeightmapNode(){return nodes().some(node=>node.pins?.some(pin=>pin.direction==='output'&&pin.type==='heightmap'))}
-function heightmapSourceNode(){const plane=nodes().find(node=>node.type==='world.plane'),input=plane?.pins?.find(pin=>pin.direction==='input'&&pin.name==='Heightmap'),link=links().find(item=>item.to===input?.id);return nodes().find(node=>node.pins?.some(pin=>pin.id===link?.from&&pin.type==='heightmap'))??nodes().find(node=>node.pins?.some(pin=>pin.direction==='output'&&pin.type==='heightmap'))??null}
-function updateTerrainModes(){const sculpt=document.querySelector('.terrain-mode[data-mode="sculpt"]'),available=hasHeightmapNode();sculpt.disabled=!available;sculpt.title=available?'Sculpt terrain height':'Add a Heightmap node to enable Sculpt mode';if(!available&&editorMode==='sculpt')setEditorMode('preview')}
-function updatePaintTargets(){const select=$('paint-target'),textureNodes=nodes().filter(node=>node.type==='world.textureAsset');const previous=select.value;select.replaceChildren();textureNodes.forEach((node,index)=>{const id=textureNodeValue(node),option=document.createElement('option');option.value=node.id;option.textContent=id?(textureAssetNames.get(id)??`Texture ${index+1}`):`Texture ${index+1} — Empty`;select.append(option)});const selected=selectedTextureNode();select.value=selected?.id??(textureNodes.some(node=>node.id===previous)?previous:textureNodes[0]?.id??'');$('paint-target-wrap').hidden=editorMode!=='paint'||!textureNodes.length}
-function updatePaintTools(node=selectedTextureNode()){
-    const tools=$('paint-tools');if(!tools)return;
-    const isTexture=node?.type==='world.textureAsset',id=textureNodeValue(node);
-    const inPaintMode=editorMode==='paint';
-    tools.hidden=!inPaintMode||!isTexture;$('brush-list').hidden=!inPaintMode||!id;$('create-paint').hidden=!inPaintMode||!isTexture||Boolean(id);$('paint-toggle').hidden=!inPaintMode||!id;
-    $('paint-size').parentElement.hidden=!id;$('paint-falloff').parentElement.hidden=!id;$('paint-value').parentElement.hidden=!id;
-    if(id&&id===loadedPaintTextureId)paintTextureId=id;
-    else if(id)vscode.postMessage({type:'loadPaintTexture',textureId:id});
-    if(!isTexture||!id){paintTextureId=null;setPaintMode(false)}
+const scene = new THREE.Scene(),
+  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 5000),
+  renderer = new THREE.WebGLRenderer({ antialias: true }),
+  controls = new OrbitControls(camera, renderer.domElement);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+camera.position.set(80, 60, 80);
+scene.background = new THREE.Color(0x17191c);
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(60, 100, 40);
+scene.add(sun);
+scene.add(new InfiniteGridHelper(20, 200, new THREE.Color(0x555555), 1000));
+$("preview").append(renderer.domElement);
+let mesh = null,
+  wire = false,
+  renderRequested = true;
+const requestRender = () => {
+  renderRequested = true;
+};
+controls.addEventListener("change", requestRender);
+const PAINT_MASK_SIZE = 1024,
+  PAINT_BRUSH_REFERENCE_SIZE = 512;
+const paintCanvas = document.createElement("canvas"),
+  paintContext = paintCanvas.getContext("2d", { willReadFrequently: true });
+const raycaster = new THREE.Raycaster(),
+  paintPointer = new THREE.Vector2();
+const brushPreview = new THREE.Mesh(
+  new THREE.RingGeometry(0.82, 1, 64),
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
+    depthTest: false,
+  }),
+);
+brushPreview.visible = false;
+brushPreview.renderOrder = 1000;
+scene.add(brushPreview);
+let paintMode = false,
+  painting = false,
+  paintTextureId = null,
+  loadedPaintTextureId = null;
+let editorMode = "preview";
+let textureAssetNames = new Map();
+let sculptModeActive = false,
+  sculpting = false,
+  sculptBrush = "raise",
+  pendingSculptStrokes = [];
+function selectedTextureNode() {
+  return (
+    nodes().find(
+      (node) =>
+        node.id === selectedNodeId && node.type === "world.textureAsset",
+    ) ?? null
+  );
 }
-function setEditorMode(mode){if(!['preview','paint','sculpt'].includes(mode))return;if(mode==='sculpt'&&!hasHeightmapNode()){status('Add a Heightmap node to enable Sculpt mode',true);return}editorMode=mode;for(const button of document.querySelectorAll('.terrain-mode'))button.classList.toggle('active',button.dataset.mode===mode);if(mode!=='paint')setPaintMode(false);if(mode!=='sculpt')setSculptMode(false);if(mode==='paint'&&!selectedTextureNode()){const first=nodes().find(node=>node.type==='world.textureAsset');if(first){selectedNodeId=first.id;selectedLinkId=null;draw();showProperties()}}$('sculpt-tools').hidden=mode!=='sculpt';$('sculpt-brushes').hidden=mode!=='sculpt';updatePaintTargets();updatePaintTools();if(mode==='paint'&&!selectedTextureNode())status('Paint mode: add a Texture Asset node');else if(mode==='sculpt')status('Sculpt mode · Hold Shift and drag');else status(mode==='paint'?'Paint mode':'Preview mode')}
-function setPaintMode(enabled){paintMode=Boolean(enabled&&paintTextureId);painting=false;controls.enabled=!paintMode;brushPreview.visible=false;renderer.domElement.classList.toggle('painting',paintMode);$('paint-toggle').classList.toggle('active',paintMode);$('paint-toggle').textContent=paintMode?'Painting':'Paint';requestRender()}
-function setSculptMode(enabled){sculptModeActive=Boolean(enabled&&editorMode==='sculpt'&&mesh);sculpting=false;controls.enabled=!sculptModeActive;brushPreview.visible=false;renderer.domElement.classList.toggle('painting',sculptModeActive);requestRender()}
-function loadPaintImage(textureId,image){const source=new Image();source.onload=()=>{if(textureNodeValue(selectedTextureNode())!==textureId)return;paintCanvas.width=source.naturalWidth;paintCanvas.height=source.naturalHeight;paintContext.clearRect(0,0,paintCanvas.width,paintCanvas.height);paintContext.drawImage(source,0,0);paintTextureId=textureId;loadedPaintTextureId=textureId;updatePaintTools()};source.src=image}
-function createPaintMask(){const node=selectedTextureNode();if(!node||textureNodeValue(node))return;paintCanvas.width=paintCanvas.height=PAINT_MASK_SIZE;paintContext.fillStyle='#000';paintContext.fillRect(0,0,PAINT_MASK_SIZE,PAINT_MASK_SIZE);vscode.postMessage({type:'createPaintTexture',nodeId:node.id,image:paintCanvas.toDataURL('image/png')});status('Creating paint mask…')}
-function terrainHit(event){if(!mesh)return null;const rect=renderer.domElement.getBoundingClientRect();paintPointer.set((event.clientX-rect.left)/rect.width*2-1,-((event.clientY-rect.top)/rect.height)*2+1);raycaster.setFromCamera(paintPointer,camera);return raycaster.intersectObject(mesh,false)[0]??null}
-function updateBrushPreview(event){if(!paintMode&&!sculptModeActive){if(brushPreview.visible){brushPreview.visible=false;requestRender()}return}const hit=terrainHit(event);if(!hit?.uv||!hit.face){if(brushPreview.visible){brushPreview.visible=false;requestRender()}return}const normal=hit.face.normal.clone().transformDirection(mesh.matrixWorld);const source=mesh.userData.terrainSource??{};const worldSize=sculptModeActive?Number($('sculpt-size').value):(Number(source.width)||Number(source.depth)||100)*Number($('paint-size').value)/PAINT_BRUSH_REFERENCE_SIZE;brushPreview.position.copy(hit.point).addScaledVector(normal,.04);brushPreview.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);brushPreview.scale.setScalar(Math.max(.01,worldSize));brushPreview.visible=true;requestRender()}
-function paintAt(event){if(!paintMode||!mesh||!paintCanvas.width)return;const hit=terrainHit(event);if(!hit?.uv)return;const x=hit.uv.x*paintCanvas.width,y=hit.uv.y*paintCanvas.height,radius=Number($('paint-size').value)*paintCanvas.width/PAINT_BRUSH_REFERENCE_SIZE,falloff=Number($('paint-falloff').value)/100,value=Number($('paint-value').value);if(falloff>0){const inner=radius*(1-falloff),gradient=paintContext.createRadialGradient(x,y,inner,x,y,radius);gradient.addColorStop(0,`rgba(${value},${value},${value},1)`);gradient.addColorStop(1,`rgba(${value},${value},${value},0)`);paintContext.fillStyle=gradient}else paintContext.fillStyle=`rgb(${value},${value},${value})`;paintContext.beginPath();paintContext.arc(x,y,radius,0,Math.PI*2);paintContext.fill();const left=Math.max(0,Math.floor(x-radius-1)),top=Math.max(0,Math.floor(y-radius-1)),right=Math.min(paintCanvas.width,Math.ceil(x+radius+1)),bottom=Math.min(paintCanvas.height,Math.ceil(y+radius+1)),dirty=paintContext.getImageData(left,top,right-left,bottom-top),rowBytes=dirty.width*4;for(const texture of mesh.material?.userData?.terrainTextures??[]){if(texture.userData.sourceTextureId!==paintTextureId)continue;for(let row=0;row<dirty.height;row++){const sourceOffset=row*rowBytes,targetOffset=((top+row)*paintCanvas.width+left)*4;texture.image.data.set(dirty.data.subarray(sourceOffset,sourceOffset+rowBytes),targetOffset)}texture.needsUpdate=true}requestRender()}
-function savePaintMask(){if(!paintTextureId||!paintCanvas.width)return;vscode.postMessage({type:'savePaintTexture',textureId:paintTextureId,image:paintCanvas.toDataURL('image/png')});status('Paint mask saved')}
-function sculptAt(event){if(!sculptModeActive||!mesh)return;const hit=terrainHit(event);if(!hit?.uv)return;const source=mesh.userData.terrainSource??{},width=Number(source.width)||100,depth=Number(source.depth)||100,radiusWorld=Number($('sculpt-size').value),radius=radiusWorld/Math.max(width,depth),falloff=Number($('sculpt-falloff').value)/100,baseStrength=Number($('sculpt-strength').value)/100,sign=sculptBrush==='lower'?-1:1,strength=sign*baseStrength;const position=mesh.geometry.getAttribute('position'),uv=mesh.geometry.getAttribute('uv'),columns=(source.resolutionX??0)+1,rows=(source.resolutionY??0)+1,original=sculptBrush==='smooth'?new Float32Array(position.array):null;if(columns<2||rows<2)return;const minX=Math.max(0,Math.floor((hit.uv.x-radius)*(columns-1))),maxX=Math.min(columns-1,Math.ceil((hit.uv.x+radius)*(columns-1))),minY=Math.max(0,Math.floor((hit.uv.y-radius)*(rows-1))),maxY=Math.min(rows-1,Math.ceil((hit.uv.y+radius)*(rows-1)));for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){const index=y*columns+x,distance=Math.hypot(uv.getX(index)-hit.uv.x,uv.getY(index)-hit.uv.y)/radius;if(distance>1)continue;const edge=falloff>0?Math.min(1,(1-distance)/falloff):1,weight=edge*edge*(3-2*edge);if(sculptBrush==='smooth'){let total=0,count=0;for(let oy=-1;oy<=1;oy++)for(let ox=-1;ox<=1;ox++){const sample=Math.max(0,Math.min(rows-1,y+oy))*columns+Math.max(0,Math.min(columns-1,x+ox));total+=original[sample*3+1];count++}position.setY(index,position.getY(index)+(total/count-position.getY(index))*baseStrength*weight)}else position.setY(index,position.getY(index)+strength*weight)}position.needsUpdate=true;pendingSculptStrokes.push({u:hit.uv.x,v:hit.uv.y,radius,strength,falloff,mode:sculptBrush});requestRender()}
-function finishSculptStroke(){if(!pendingSculptStrokes.length)return;mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingBox();mesh.geometry.computeBoundingSphere();const source=heightmapSourceNode();if(source){source.sculptStrokes??=[];source.sculptStrokes.push(...pendingSculptStrokes)}pendingSculptStrokes=[];changed();status('Sculpt stroke saved')}
-function createTerrainFallbackMaterial(g){const checker=new THREE.TextureLoader().load(window.INFINITE_ASSETS.checkerTexture);checker.colorSpace=THREE.SRGBColorSpace;checker.wrapS=checker.wrapT=THREE.RepeatWrapping;checker.repeat.set(Math.max(1,(g.width??100)/6.4),Math.max(1,(g.depth??100)/6.4));checker.needsUpdate=true;return new THREE.MeshStandardMaterial({map:checker,roughness:.9,wireframe:wire})}
-function setTerrain(data){const shouldFit=!mesh;if(mesh){mesh.geometry.dispose();disposeTerrainGraphMaterial(mesh.material);scene.remove(mesh)}const g=data.geometry,geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(g.positions,3));geometry.setAttribute('uv',new THREE.BufferAttribute(g.uvs,2));geometry.setIndex(new THREE.BufferAttribute(g.indices,1));if(g.normals)geometry.setAttribute('normal',new THREE.BufferAttribute(g.normals,3));else geometry.computeVertexNormals();mesh=new THREE.Mesh(geometry,createTerrainGraphMaterial(data.material,g,wire,createTerrainFallbackMaterial));mesh.userData.terrainSource=g;scene.add(mesh);if(shouldFit)fitTerrain();requestRender();status('Terrain generated')}
-function fitTerrain(){if(!mesh)return;const box=new THREE.Box3().setFromObject(mesh),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());controls.target.copy(center);camera.position.copy(center).add(new THREE.Vector3(1,.8,1).normalize().multiplyScalar(Math.max(size.x,size.y,size.z)*1.5));controls.update()}
-$('wire').onclick=()=>{wire=!wire;if(mesh)mesh.material.wireframe=wire;requestRender()};$('fit').onclick=fitTerrain;$('generate').onclick=()=>{latest=++revision;vscode.postMessage({type:'generate',revision:latest})};
-$('create-paint').onclick=createPaintMask;$('paint-toggle').onclick=()=>setPaintMode(!paintMode);
-for(const button of document.querySelectorAll('.terrain-mode'))button.onclick=()=>setEditorMode(button.dataset.mode);
-$('paint-target').onchange=()=>{selectedNodeId=$('paint-target').value||null;selectedLinkId=null;draw();showProperties();status('Paint target selected')};
-for(const button of document.querySelectorAll('.brush-preset'))button.onclick=()=>{for(const item of document.querySelectorAll('.brush-preset'))item.classList.toggle('active',item===button);$('paint-size').value=button.dataset.size;$('paint-falloff').value=button.dataset.falloff;status(button.textContent.trim()+' brush selected')};
-for(const button of document.querySelectorAll('.sculpt-brush'))button.onclick=()=>{sculptBrush=button.dataset.sculpt;for(const item of document.querySelectorAll('.sculpt-brush'))item.classList.toggle('active',item===button);status(button.textContent.trim()+' sculpt brush selected')};
-renderer.domElement.addEventListener('pointerdown',event=>{if(!paintMode&&!sculptModeActive)return;event.preventDefault();event.stopImmediatePropagation();controls.enabled=false;painting=paintMode;sculpting=sculptModeActive;renderer.domElement.setPointerCapture(event.pointerId);if(painting)paintAt(event);if(sculpting)sculptAt(event)},true);
-renderer.domElement.addEventListener('pointermove',event=>{updateBrushPreview(event);if(painting)paintAt(event);if(sculpting)sculptAt(event)});
-renderer.domElement.addEventListener('pointerleave',()=>{brushPreview.visible=false});
-renderer.domElement.addEventListener('pointerup',event=>{if(!painting&&!sculpting)return;event.stopImmediatePropagation();const wasPainting=painting,wasSculpting=sculpting;painting=false;sculpting=false;controls.enabled=!paintMode&&!sculptModeActive;if(renderer.domElement.hasPointerCapture(event.pointerId))renderer.domElement.releasePointerCapture(event.pointerId);if(wasPainting)savePaintMask();if(wasSculpting)finishSculptStroke()},true);
-renderer.domElement.addEventListener('pointercancel',()=>{painting=false;if(sculpting)finishSculptStroke();sculpting=false;controls.enabled=!paintMode&&!sculptModeActive});
-window.addEventListener('keydown',event=>{if(event.key!=='Shift'||event.repeat)return;if(editorMode==='paint'&&paintTextureId)setPaintMode(true);else if(editorMode==='sculpt')setSculptMode(true)});
-window.addEventListener('keyup',event=>{if(event.key!=='Shift')return;if(painting){painting=false;savePaintMask()}if(sculpting){sculpting=false;finishSculptStroke()}setPaintMode(false);setSculptMode(false)});
-window.addEventListener('blur',()=>{if(painting){painting=false;savePaintMask()}if(sculpting){sculpting=false;finishSculptStroke()}setPaintMode(false);setSculptMode(false)});
-window.addEventListener('message',event=>{const message=event.data;if(message.type==='load'){asset=message.asset;documentUri=message.uri??documentUri;asset.data??=asset.graph??{nodes:[],links:[]};definitions=new Map(message.definitions.map(d=>[d.type,d]));textureAssetNames=new Map((message.textureAssets??[]).map(item=>[item.id,item.name]));const migrated=reconcileNodePins();$('title').textContent=(asset.name??'Terrain')+' — World Graph';renderMenu();updatePaintTargets();updateTerrainModes();showProperties();draw();if(migrated)changed();if(!loadedOnce){loadedOnce=true;fitGraph()}}else if(message.type==='updateGraphProperty'){const node=nodes().find(item=>item.id===message.id);const pin=node?.pins?.find(item=>item.id===message.pinId);if(pin&&message.property==='pinValue'){let value=message.value;if(pin.type==='number'){value=Number(value);if(!Number.isFinite(value))return;if(pin.integer)value=Math.round(value);if(Number.isFinite(pin.min))value=Math.max(pin.min,value);if(Number.isFinite(pin.max))value=Math.min(pin.max,value)}pin.value=value;updatePaintTargets();changed()}}else if(message.type==='paintTextureCreated'){const node=nodes().find(item=>item.id===message.nodeId);const pin=node?.pins?.find(item=>item.direction==='output'&&item.name==='Texture');if(pin){pin.value=message.textureId;textureAssetNames.set(message.textureId,message.textureName);updatePaintTargets();loadPaintImage(message.textureId,message.image);changed()}}else if(message.type==='paintTextureLoaded'){loadPaintImage(message.textureId,message.image)}else if(message.type==='generated'){if(message.revision<latest)return;latest=message.revision;setTerrain(message.terrain)}else if(message.type==='generationError'||message.type==='error')status(message.error,true)});
-const layoutObserver=new ResizeObserver(()=>{resize();requestRender()});layoutObserver.observe(workspace);layoutObserver.observe(container);layoutObserver.observe($('preview'));function animate(){requestAnimationFrame(animate);if(!renderRequested)return;renderRequested=false;controls.update();renderer.render(scene,camera)}resize();animate();vscode.postMessage({type:'ready'});
+function textureNodeValue(node) {
+  const value = node?.pins?.find(
+    (pin) => pin.direction === "output" && pin.name === "Texture",
+  )?.value;
+  return typeof value === "string" ? value : value?.id;
+}
+function hasHeightmapNode() {
+  return nodes().some((node) =>
+    node.pins?.some(
+      (pin) => pin.direction === "output" && pin.type === "heightmap",
+    ),
+  );
+}
+function heightmapSourceNode() {
+  const plane = nodes().find((node) => node.type === "world.plane"),
+    input = plane?.pins?.find(
+      (pin) => pin.direction === "input" && pin.name === "Heightmap",
+    ),
+    link = links().find((item) => item.to === input?.id);
+  return (
+    nodes().find((node) =>
+      node.pins?.some(
+        (pin) => pin.id === link?.from && pin.type === "heightmap",
+      ),
+    ) ??
+    nodes().find((node) =>
+      node.pins?.some(
+        (pin) => pin.direction === "output" && pin.type === "heightmap",
+      ),
+    ) ??
+    null
+  );
+}
+function updateTerrainModes() {
+  const sculpt = document.querySelector('.terrain-mode[data-mode="sculpt"]'),
+    available = hasHeightmapNode();
+  sculpt.disabled = !available;
+  sculpt.title = available
+    ? "Sculpt terrain height"
+    : "Add a Heightmap node to enable Sculpt mode";
+  if (!available && editorMode === "sculpt") setEditorMode("preview");
+}
+function updatePaintTargets() {
+  const select = $("paint-target"),
+    textureNodes = nodes().filter((node) => node.type === "world.textureAsset");
+  const previous = select.value;
+  select.replaceChildren();
+  textureNodes.forEach((node, index) => {
+    const id = textureNodeValue(node),
+      option = document.createElement("option");
+    option.value = node.id;
+    option.textContent = id
+      ? (textureAssetNames.get(id) ?? `Texture ${index + 1}`)
+      : `Texture ${index + 1} — Empty`;
+    select.append(option);
+  });
+  const selected = selectedTextureNode();
+  select.value =
+    selected?.id ??
+    (textureNodes.some((node) => node.id === previous)
+      ? previous
+      : (textureNodes[0]?.id ?? ""));
+  $("paint-target-wrap").hidden =
+    editorMode !== "paint" || !textureNodes.length;
+}
+function updatePaintTools(node = selectedTextureNode()) {
+  const tools = $("paint-tools");
+  if (!tools) return;
+  const isTexture = node?.type === "world.textureAsset",
+    id = textureNodeValue(node);
+  const inPaintMode = editorMode === "paint";
+  tools.hidden = !inPaintMode || !isTexture;
+  $("brush-list").hidden = !inPaintMode || !id;
+  $("create-paint").hidden = !inPaintMode || !isTexture || Boolean(id);
+  $("paint-toggle").hidden = !inPaintMode || !id;
+  $("paint-size").parentElement.hidden = !id;
+  $("paint-falloff").parentElement.hidden = !id;
+  $("paint-value").parentElement.hidden = !id;
+  if (id && id === loadedPaintTextureId) paintTextureId = id;
+  else if (id) vscode.postMessage({ type: "loadPaintTexture", textureId: id });
+  if (!isTexture || !id) {
+    paintTextureId = null;
+    setPaintMode(false);
+  }
+}
+function setEditorMode(mode) {
+  if (!["preview", "paint", "sculpt"].includes(mode)) return;
+  if (mode === "sculpt" && !hasHeightmapNode()) {
+    status("Add a Heightmap node to enable Sculpt mode", true);
+    return;
+  }
+  editorMode = mode;
+  for (const button of document.querySelectorAll(".terrain-mode"))
+    button.classList.toggle("active", button.dataset.mode === mode);
+  if (mode !== "paint") setPaintMode(false);
+  if (mode !== "sculpt") setSculptMode(false);
+  if (mode === "paint" && !selectedTextureNode()) {
+    const first = nodes().find((node) => node.type === "world.textureAsset");
+    if (first) {
+      selectedNodeId = first.id;
+      selectedLinkId = null;
+      draw();
+      showProperties();
+    }
+  }
+  $("sculpt-tools").hidden = mode !== "sculpt";
+  $("sculpt-brushes").hidden = mode !== "sculpt";
+  updatePaintTargets();
+  updatePaintTools();
+  if (mode === "paint" && !selectedTextureNode())
+    status("Paint mode: add a Texture Asset node");
+  else if (mode === "sculpt") status("Sculpt mode · Hold Shift and drag");
+  else status(mode === "paint" ? "Paint mode" : "Preview mode");
+}
+function setPaintMode(enabled) {
+  paintMode = Boolean(enabled && paintTextureId);
+  painting = false;
+  controls.enabled = !paintMode;
+  brushPreview.visible = false;
+  renderer.domElement.classList.toggle("painting", paintMode);
+  $("paint-toggle").classList.toggle("active", paintMode);
+  $("paint-toggle").textContent = paintMode ? "Painting" : "Paint";
+  requestRender();
+}
+function setSculptMode(enabled) {
+  sculptModeActive = Boolean(enabled && editorMode === "sculpt" && mesh);
+  sculpting = false;
+  controls.enabled = !sculptModeActive;
+  brushPreview.visible = false;
+  renderer.domElement.classList.toggle("painting", sculptModeActive);
+  requestRender();
+}
+function loadPaintImage(textureId, image) {
+  const source = new Image();
+  source.onload = () => {
+    if (textureNodeValue(selectedTextureNode()) !== textureId) return;
+    paintCanvas.width = source.naturalWidth;
+    paintCanvas.height = source.naturalHeight;
+    paintContext.clearRect(0, 0, paintCanvas.width, paintCanvas.height);
+    paintContext.drawImage(source, 0, 0);
+    paintTextureId = textureId;
+    loadedPaintTextureId = textureId;
+    updatePaintTools();
+  };
+  source.src = image;
+}
+function createPaintMask() {
+  const node = selectedTextureNode();
+  if (!node || textureNodeValue(node)) return;
+  paintCanvas.width = paintCanvas.height = PAINT_MASK_SIZE;
+  paintContext.fillStyle = "#000";
+  paintContext.fillRect(0, 0, PAINT_MASK_SIZE, PAINT_MASK_SIZE);
+  vscode.postMessage({
+    type: "createPaintTexture",
+    nodeId: node.id,
+    image: paintCanvas.toDataURL("image/png"),
+  });
+  status("Creating paint mask…");
+}
+function terrainHit(event) {
+  if (!mesh) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  paintPointer.set(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  raycaster.setFromCamera(paintPointer, camera);
+  return raycaster.intersectObject(mesh, false)[0] ?? null;
+}
+function updateBrushPreview(event) {
+  if (!paintMode && !sculptModeActive) {
+    if (brushPreview.visible) {
+      brushPreview.visible = false;
+      requestRender();
+    }
+    return;
+  }
+  const hit = terrainHit(event);
+  if (!hit?.uv || !hit.face) {
+    if (brushPreview.visible) {
+      brushPreview.visible = false;
+      requestRender();
+    }
+    return;
+  }
+  const normal = hit.face.normal.clone().transformDirection(mesh.matrixWorld);
+  const source = mesh.userData.terrainSource ?? {};
+  const worldSize = sculptModeActive
+    ? Number($("sculpt-size").value)
+    : ((Number(source.width) || Number(source.depth) || 100) *
+        Number($("paint-size").value)) /
+      PAINT_BRUSH_REFERENCE_SIZE;
+  brushPreview.position.copy(hit.point).addScaledVector(normal, 0.04);
+  brushPreview.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    normal,
+  );
+  brushPreview.scale.setScalar(Math.max(0.01, worldSize));
+  brushPreview.visible = true;
+  requestRender();
+}
+function paintAt(event) {
+  if (!paintMode || !mesh || !paintCanvas.width) return;
+  const hit = terrainHit(event);
+  if (!hit?.uv) return;
+  const x = hit.uv.x * paintCanvas.width,
+    y = hit.uv.y * paintCanvas.height,
+    radius =
+      (Number($("paint-size").value) * paintCanvas.width) /
+      PAINT_BRUSH_REFERENCE_SIZE,
+    falloff = Number($("paint-falloff").value) / 100,
+    value = Number($("paint-value").value);
+  if (falloff > 0) {
+    const inner = radius * (1 - falloff),
+      gradient = paintContext.createRadialGradient(x, y, inner, x, y, radius);
+    gradient.addColorStop(0, `rgba(${value},${value},${value},1)`);
+    gradient.addColorStop(1, `rgba(${value},${value},${value},0)`);
+    paintContext.fillStyle = gradient;
+  } else paintContext.fillStyle = `rgb(${value},${value},${value})`;
+  paintContext.beginPath();
+  paintContext.arc(x, y, radius, 0, Math.PI * 2);
+  paintContext.fill();
+  const left = Math.max(0, Math.floor(x - radius - 1)),
+    top = Math.max(0, Math.floor(y - radius - 1)),
+    right = Math.min(paintCanvas.width, Math.ceil(x + radius + 1)),
+    bottom = Math.min(paintCanvas.height, Math.ceil(y + radius + 1)),
+    dirty = paintContext.getImageData(left, top, right - left, bottom - top),
+    rowBytes = dirty.width * 4;
+  for (const texture of mesh.material?.userData?.terrainTextures ?? []) {
+    if (texture.userData.sourceTextureId !== paintTextureId) continue;
+    for (let row = 0; row < dirty.height; row++) {
+      const sourceOffset = row * rowBytes,
+        targetOffset = ((top + row) * paintCanvas.width + left) * 4;
+      texture.image.data.set(
+        dirty.data.subarray(sourceOffset, sourceOffset + rowBytes),
+        targetOffset,
+      );
+    }
+    texture.needsUpdate = true;
+  }
+  requestRender();
+}
+function savePaintMask() {
+  if (!paintTextureId || !paintCanvas.width) return;
+  vscode.postMessage({
+    type: "savePaintTexture",
+    textureId: paintTextureId,
+    image: paintCanvas.toDataURL("image/png"),
+  });
+  status("Paint mask saved");
+}
+function sculptAt(event) {
+  if (!sculptModeActive || !mesh) return;
+  const hit = terrainHit(event);
+  if (!hit?.uv) return;
+  const source = mesh.userData.terrainSource ?? {},
+    width = Number(source.width) || 100,
+    depth = Number(source.depth) || 100,
+    radiusWorld = Number($("sculpt-size").value),
+    radius = radiusWorld / Math.max(width, depth),
+    falloff = Number($("sculpt-falloff").value) / 100,
+    baseStrength = Number($("sculpt-strength").value) / 100,
+    sign = sculptBrush === "lower" ? -1 : 1,
+    strength = sign * baseStrength;
+  const position = mesh.geometry.getAttribute("position"),
+    uv = mesh.geometry.getAttribute("uv"),
+    columns = (source.resolutionX ?? 0) + 1,
+    rows = (source.resolutionY ?? 0) + 1,
+    original =
+      sculptBrush === "smooth" ? new Float32Array(position.array) : null;
+  if (columns < 2 || rows < 2) return;
+  const minX = Math.max(0, Math.floor((hit.uv.x - radius) * (columns - 1))),
+    maxX = Math.min(
+      columns - 1,
+      Math.ceil((hit.uv.x + radius) * (columns - 1)),
+    ),
+    minY = Math.max(0, Math.floor((hit.uv.y - radius) * (rows - 1))),
+    maxY = Math.min(rows - 1, Math.ceil((hit.uv.y + radius) * (rows - 1)));
+  for (let y = minY; y <= maxY; y++)
+    for (let x = minX; x <= maxX; x++) {
+      const index = y * columns + x,
+        distance =
+          Math.hypot(uv.getX(index) - hit.uv.x, uv.getY(index) - hit.uv.y) /
+          radius;
+      if (distance > 1) continue;
+      const edge = falloff > 0 ? Math.min(1, (1 - distance) / falloff) : 1,
+        weight = edge * edge * (3 - 2 * edge);
+      if (sculptBrush === "smooth") {
+        let total = 0,
+          count = 0;
+        for (let oy = -1; oy <= 1; oy++)
+          for (let ox = -1; ox <= 1; ox++) {
+            const sample =
+              Math.max(0, Math.min(rows - 1, y + oy)) * columns +
+              Math.max(0, Math.min(columns - 1, x + ox));
+            total += original[sample * 3 + 1];
+            count++;
+          }
+        position.setY(
+          index,
+          position.getY(index) +
+            (total / count - position.getY(index)) * baseStrength * weight,
+        );
+      } else position.setY(index, position.getY(index) + strength * weight);
+    }
+  position.needsUpdate = true;
+  pendingSculptStrokes.push({
+    u: hit.uv.x,
+    v: hit.uv.y,
+    radius,
+    strength,
+    falloff,
+    mode: sculptBrush,
+  });
+  requestRender();
+}
+function finishSculptStroke() {
+  if (!pendingSculptStrokes.length) return;
+  mesh.geometry.computeVertexNormals();
+  mesh.geometry.computeBoundingBox();
+  mesh.geometry.computeBoundingSphere();
+  const source = heightmapSourceNode();
+  if (source) {
+    source.sculptStrokes ??= [];
+    source.sculptStrokes.push(...pendingSculptStrokes);
+  }
+  pendingSculptStrokes = [];
+  changed();
+  status("Sculpt stroke saved");
+}
+function createTerrainFallbackMaterial(g) {
+  const checker = new THREE.TextureLoader().load(
+    window.INFINITE_ASSETS.checkerTexture,
+  );
+  checker.colorSpace = THREE.SRGBColorSpace;
+  checker.wrapS = checker.wrapT = THREE.RepeatWrapping;
+  checker.repeat.set(
+    Math.max(1, (g.width ?? 100) / 6.4),
+    Math.max(1, (g.depth ?? 100) / 6.4),
+  );
+  checker.needsUpdate = true;
+  return new THREE.MeshStandardMaterial({
+    map: checker,
+    roughness: 0.9,
+    wireframe: wire,
+  });
+}
+function setTerrain(data) {
+  const shouldFit = !mesh;
+  if (mesh) {
+    mesh.geometry.dispose();
+    disposeTerrainGraphMaterial(mesh.material);
+    scene.remove(mesh);
+  }
+  const g = data.geometry,
+    geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(g.positions, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(g.uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(g.indices, 1));
+  if (g.normals)
+    geometry.setAttribute("normal", new THREE.BufferAttribute(g.normals, 3));
+  else geometry.computeVertexNormals();
+  mesh = new THREE.Mesh(
+    geometry,
+    createTerrainGraphMaterial(
+      data.material,
+      g,
+      wire,
+      createTerrainFallbackMaterial,
+    ),
+  );
+  mesh.userData.terrainSource = g;
+  scene.add(mesh);
+  if (shouldFit) fitTerrain();
+  requestRender();
+  status("Terrain generated");
+}
+function fitTerrain() {
+  if (!mesh) return;
+  const box = new THREE.Box3().setFromObject(mesh),
+    size = box.getSize(new THREE.Vector3()),
+    center = box.getCenter(new THREE.Vector3());
+  controls.target.copy(center);
+  camera.position
+    .copy(center)
+    .add(
+      new THREE.Vector3(1, 0.8, 1)
+        .normalize()
+        .multiplyScalar(Math.max(size.x, size.y, size.z) * 1.5),
+    );
+  controls.update();
+}
+$("wire").onclick = () => {
+  wire = !wire;
+  if (mesh) mesh.material.wireframe = wire;
+  requestRender();
+};
+$("fit").onclick = fitTerrain;
+$("generate").onclick = () => {
+  latest = ++revision;
+  vscode.postMessage({ type: "generate", revision: latest });
+};
+$("create-paint").onclick = createPaintMask;
+$("paint-toggle").onclick = () => setPaintMode(!paintMode);
+for (const button of document.querySelectorAll(".terrain-mode"))
+  button.onclick = () => setEditorMode(button.dataset.mode);
+$("paint-target").onchange = () => {
+  selectedNodeId = $("paint-target").value || null;
+  selectedLinkId = null;
+  draw();
+  showProperties();
+  status("Paint target selected");
+};
+for (const button of document.querySelectorAll(".brush-preset"))
+  button.onclick = () => {
+    for (const item of document.querySelectorAll(".brush-preset"))
+      item.classList.toggle("active", item === button);
+    $("paint-size").value = button.dataset.size;
+    $("paint-falloff").value = button.dataset.falloff;
+    status(button.textContent.trim() + " brush selected");
+  };
+for (const button of document.querySelectorAll(".sculpt-brush"))
+  button.onclick = () => {
+    sculptBrush = button.dataset.sculpt;
+    for (const item of document.querySelectorAll(".sculpt-brush"))
+      item.classList.toggle("active", item === button);
+    status(button.textContent.trim() + " sculpt brush selected");
+  };
+renderer.domElement.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (!paintMode && !sculptModeActive) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    controls.enabled = false;
+    painting = paintMode;
+    sculpting = sculptModeActive;
+    renderer.domElement.setPointerCapture(event.pointerId);
+    if (painting) paintAt(event);
+    if (sculpting) sculptAt(event);
+  },
+  true,
+);
+renderer.domElement.addEventListener("pointermove", (event) => {
+  updateBrushPreview(event);
+  if (painting) paintAt(event);
+  if (sculpting) sculptAt(event);
+});
+renderer.domElement.addEventListener("pointerleave", () => {
+  brushPreview.visible = false;
+});
+renderer.domElement.addEventListener(
+  "pointerup",
+  (event) => {
+    if (!painting && !sculpting) return;
+    event.stopImmediatePropagation();
+    const wasPainting = painting,
+      wasSculpting = sculpting;
+    painting = false;
+    sculpting = false;
+    controls.enabled = !paintMode && !sculptModeActive;
+    if (renderer.domElement.hasPointerCapture(event.pointerId))
+      renderer.domElement.releasePointerCapture(event.pointerId);
+    if (wasPainting) savePaintMask();
+    if (wasSculpting) finishSculptStroke();
+  },
+  true,
+);
+renderer.domElement.addEventListener("pointercancel", () => {
+  painting = false;
+  if (sculpting) finishSculptStroke();
+  sculpting = false;
+  controls.enabled = !paintMode && !sculptModeActive;
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Shift" || event.repeat) return;
+  if (editorMode === "paint" && paintTextureId) setPaintMode(true);
+  else if (editorMode === "sculpt") setSculptMode(true);
+});
+window.addEventListener("keyup", (event) => {
+  if (event.key !== "Shift") return;
+  if (painting) {
+    painting = false;
+    savePaintMask();
+  }
+  if (sculpting) {
+    sculpting = false;
+    finishSculptStroke();
+  }
+  setPaintMode(false);
+  setSculptMode(false);
+});
+window.addEventListener("blur", () => {
+  if (painting) {
+    painting = false;
+    savePaintMask();
+  }
+  if (sculpting) {
+    sculpting = false;
+    finishSculptStroke();
+  }
+  setPaintMode(false);
+  setSculptMode(false);
+});
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (message.type === "load") {
+    asset = message.asset;
+    documentUri = message.uri ?? documentUri;
+    asset.data ??= asset.graph ?? { nodes: [], links: [] };
+    definitions = new Map(message.definitions.map((d) => [d.type, d]));
+    textureAssetNames = new Map(
+      (message.textureAssets ?? []).map((item) => [item.id, item.name]),
+    );
+    const migrated = reconcileNodePins();
+    $("title").textContent = (asset.name ?? "Terrain") + " — World Graph";
+    renderMenu();
+    updatePaintTargets();
+    updateTerrainModes();
+    showProperties();
+    draw();
+    if (migrated) changed();
+    if (!loadedOnce) {
+      loadedOnce = true;
+      fitGraph();
+    }
+  } else if (message.type === "updateGraphProperty") {
+    const node = nodes().find((item) => item.id === message.id);
+    const pin = node?.pins?.find((item) => item.id === message.pinId);
+    if (pin && message.property === "pinValue") {
+      let value = message.value;
+      if (pin.type === "number") {
+        value = Number(value);
+        if (!Number.isFinite(value)) return;
+        if (pin.integer) value = Math.round(value);
+        if (Number.isFinite(pin.min)) value = Math.max(pin.min, value);
+        if (Number.isFinite(pin.max)) value = Math.min(pin.max, value);
+      }
+      pin.value = value;
+      updatePaintTargets();
+      changed();
+    }
+  } else if (message.type === "paintTextureCreated") {
+    const node = nodes().find((item) => item.id === message.nodeId);
+    const pin = node?.pins?.find(
+      (item) => item.direction === "output" && item.name === "Texture",
+    );
+    if (pin) {
+      pin.value = message.textureId;
+      textureAssetNames.set(message.textureId, message.textureName);
+      updatePaintTargets();
+      loadPaintImage(message.textureId, message.image);
+      changed();
+    }
+  } else if (message.type === "paintTextureLoaded") {
+    loadPaintImage(message.textureId, message.image);
+  } else if (message.type === "generated") {
+    if (message.revision < latest) return;
+    latest = message.revision;
+    setTerrain(message.terrain);
+  } else if (message.type === "generationError" || message.type === "error")
+    status(message.error, true);
+});
+const layoutObserver = new ResizeObserver(() => {
+  resize();
+  requestRender();
+});
+layoutObserver.observe(workspace);
+layoutObserver.observe(container);
+layoutObserver.observe($("preview"));
+function animate() {
+  requestAnimationFrame(animate);
+  if (!renderRequested) return;
+  renderRequested = false;
+  controls.update();
+  renderer.render(scene, camera);
+}
+resize();
+animate();
+vscode.postMessage({ type: "ready" });

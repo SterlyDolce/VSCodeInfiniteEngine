@@ -1,434 +1,541 @@
 :root {
-    font-family: var(--vscode-font-family), sans-serif;
-    font-size: var(--vscode-font-size, 12px);
-    color: var(--vscode-foreground);
-    background: var(--vscode-editor-background)
+  font-family: var(--vscode-font-family), sans-serif;
+  font-size: var(--vscode-font-size, 12px);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
 }
 
 * {
-    box-sizing: border-box
+  box-sizing: border-box;
 }
 
 html,
 body,
 #workspace {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    overflow: hidden
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 button,
 input {
-    font: inherit;
-    color: inherit
+  font: inherit;
+  color: inherit;
 }
 
 button {
-    cursor: pointer;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-    height: 28px;
-    padding: 0 9px
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  height: 28px;
+  padding: 0 9px;
 }
 
 button:hover {
-    background: var(--vscode-button-secondaryHoverBackground)
+  background: var(--vscode-button-secondaryHoverBackground);
 }
 
 button:focus-visible,
 input:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder);
-    outline-offset: 1px
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
 }
 
 [hidden] {
-    display: none !important
+  display: none !important;
 }
 
 #workspace {
-    display: grid;
-    grid-template-columns: minmax(220px, 1fr) 7px minmax(220px, 1fr);
-    grid-template-rows: 1fr 25px;
-    background: var(--vscode-editor-background)
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 7px minmax(220px, 1fr);
+  grid-template-rows: 1fr 25px;
+  background: var(--vscode-editor-background);
 }
 
 #graph-wrap,
 #preview {
-    position: relative;
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 #splitter {
-    position: relative;
-    z-index: 5;
-    min-width: 7px;
-    cursor: col-resize;
-    touch-action: none;
-    background: var(--vscode-panel-border)
+  position: relative;
+  z-index: 5;
+  min-width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--vscode-panel-border);
 }
 
 #splitter::after {
-    content: "";
-    position: absolute;
-    inset: 0 2px;
-    background: transparent
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
 }
 
 #splitter:hover::after,
 #splitter:focus-visible::after,
 body.resizing #splitter::after {
-    background: var(--vscode-focusBorder)
+  background: var(--vscode-focusBorder);
 }
 
 #splitter:focus-visible {
-    outline: none
+  outline: none;
 }
 
 body.resizing {
-    cursor: col-resize;
-    user-select: none
+  cursor: col-resize;
+  user-select: none;
 }
 
 #graph {
-    display: block;
-    width: 100%;
-    height: 100%;
-    cursor: grab;
-    touch-action: none
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
 }
 
 #graph.dragging {
-    cursor: grabbing
+  cursor: grabbing;
 }
 
 #graph-toolbar,
 #preview-toolbar {
-    position: absolute;
-    z-index: 2;
-    top: 12px;
-    left: 12px;
-    right: 12px;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px;
-    border-radius: 9px;
-    pointer-events: none
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 9px;
+  pointer-events: none;
 }
 
-#graph-toolbar>*,
-#preview-toolbar>* {
-    pointer-events: auto
+#graph-toolbar > *,
+#preview-toolbar > * {
+  pointer-events: auto;
 }
 
 #graph-toolbar span,
 #preview-toolbar span {
-    flex: 1
+  flex: 1;
 }
 
 #graph-toolbar strong {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%)
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 #graph-toolbar button,
 #preview-toolbar button {
-    background: transparent
+  background: transparent;
 }
 
 #graph-toolbar button:hover,
 #preview-toolbar button:hover {
-    background: var(--vscode-button-secondaryHoverBackground)
+  background: var(--vscode-button-secondaryHoverBackground);
 }
 
 #preview canvas {
-    display: block;
-    width: 100%;
-    height: 100%
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 footer {
-    grid-column: 1/-1;
-    padding: 4px 10px;
-    border-top: 1px solid var(--vscode-panel-border);
-    color: var(--vscode-descriptionForeground)
+  grid-column: 1/-1;
+  padding: 4px 10px;
+  border-top: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
 }
 
 footer.error {
-    color: var(--vscode-errorForeground)
+  color: var(--vscode-errorForeground);
 }
 
 #zoom-label {
-    position: absolute;
-    right: 14px;
-    bottom: 12px;
-    color: var(--vscode-descriptionForeground);
-    font-size: 11px;
-    pointer-events: none
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 .popup {
-    position: absolute;
-    z-index: 10;
-    width: 230px;
-    max-height: 310px;
-    display: flex;
-    flex-direction: column;
-    padding: 8px;
-    background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
-    color: var(--vscode-menu-foreground);
-    border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border));
-    border-radius: 10px;
-    box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, .3))
+  position: absolute;
+  z-index: 10;
+  width: 230px;
+  max-height: 310px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background: var(
+    --vscode-menu-background,
+    var(--vscode-editorWidget-background)
+  );
+  color: var(--vscode-menu-foreground);
+  border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border));
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
 }
 
 .popup input {
-    width: 100%;
-    height: 32px;
-    padding: 7px 9px;
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border, transparent);
-    border-radius: 6px;
-    color: var(--vscode-input-foreground)
+  width: 100%;
+  height: 32px;
+  padding: 7px 9px;
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 6px;
+  color: var(--vscode-input-foreground);
 }
 
 #menu-items {
-    overflow: auto;
-    margin-top: 7px
+  overflow: auto;
+  margin-top: 7px;
 }
 
 .menu-category {
-    padding: 10px 7px 5px;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: var(--vscode-descriptionForeground);
-    text-transform: uppercase
+  padding: 10px 7px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--vscode-descriptionForeground);
+  text-transform: uppercase;
 }
 
 .menu-item {
-    display: block;
-    width: 100%;
-    height: auto;
-    padding: 9px 10px;
-    text-align: left;
-    background: transparent;
-    border: 0
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 9px 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
 }
 
 .menu-item:hover {
-    background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
-    color: var(--vscode-menu-selectionForeground, var(--vscode-foreground))
+  background: var(
+    --vscode-menu-selectionBackground,
+    var(--vscode-list-hoverBackground)
+  );
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
 }
-#paint-tools{position:absolute;z-index:3;right:14px;bottom:14px;display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--vscode-panel-border);border-radius:8px;background:var(--vscode-editorWidget-background);box-shadow:0 4px 14px var(--vscode-widget-shadow);}
-#paint-tools[hidden],#paint-tools [hidden]{display:none}
-#paint-tools label{display:flex;align-items:center;gap:4px;color:var(--vscode-descriptionForeground);font-size:11px}
-#paint-tools input[type="range"]{
-    width:82px;
-    height:18px;
-    margin:0;
-    padding:0;
-    appearance:none;
-    -webkit-appearance:none;
-    background:transparent;
-    cursor:pointer;
+#paint-tools {
+  position: absolute;
+  z-index: 3;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 4px 14px var(--vscode-widget-shadow);
 }
-#paint-tools input[type="range"]::-webkit-slider-runnable-track{
-    height:4px;
-    border-radius:999px;
-    background:var(--vscode-input-background);
-    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vscode-contrastBorder,transparent) 55%,transparent);
+#paint-tools[hidden],
+#paint-tools [hidden] {
+  display: none;
 }
-#paint-tools input[type="range"]::-webkit-slider-thumb{
-    width:14px;
-    height:14px;
-    margin-top:-5px;
-    appearance:none;
-    -webkit-appearance:none;
-    border:2px solid var(--vscode-editorWidget-background);
-    border-radius:50%;
-    background:var(--vscode-focusBorder);
-    box-shadow:0 1px 3px var(--vscode-widget-shadow);
+#paint-tools label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
 }
-#paint-tools input[type="range"]:hover::-webkit-slider-thumb{
-    transform:scale(1.12);
+#paint-tools input[type="range"] {
+  width: 82px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
 }
-#paint-tools input[type="range"]:focus-visible{
-    outline:none;
+#paint-tools input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--vscode-input-background);
+  box-shadow: inset 0 0 0 1px
+    color-mix(
+      in srgb,
+      var(--vscode-contrastBorder, transparent) 55%,
+      transparent
+    );
 }
-#paint-tools input[type="range"]:focus-visible::-webkit-slider-thumb{
-    box-shadow:0 0 0 2px var(--vscode-focusBorder);
+#paint-tools input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid var(--vscode-editorWidget-background);
+  border-radius: 50%;
+  background: var(--vscode-focusBorder);
+  box-shadow: 0 1px 3px var(--vscode-widget-shadow);
 }
-#paint-toggle.active{color:var(--vscode-button-foreground);background:var(--vscode-button-background)}
-#preview canvas.painting{cursor:crosshair}
-#sculpt-tools{
-    position:absolute;
-    z-index:3;
-    right:14px;
-    bottom:14px;
-    display:flex;
-    align-items:center;
-    gap:8px;
-    padding:8px;
-    border:1px solid var(--vscode-panel-border);
-    border-radius:8px;
-    background:var(--vscode-editorWidget-background);
-    box-shadow:0 4px 14px var(--vscode-widget-shadow);
+#paint-tools input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
 }
-#sculpt-tools[hidden],#sculpt-brushes[hidden]{display:none}
-#sculpt-tools label{display:flex;align-items:center;gap:4px;color:var(--vscode-descriptionForeground);font-size:11px}
-#sculpt-tools input[type="range"]{
-    width:82px;
-    height:18px;
-    margin:0;
-    padding:0;
-    appearance:none;
-    -webkit-appearance:none;
-    background:transparent;
-    cursor:pointer;
+#paint-tools input[type="range"]:focus-visible {
+  outline: none;
 }
-#sculpt-tools input[type="range"]::-webkit-slider-runnable-track{
-    height:4px;
-    border-radius:999px;
-    background:var(--vscode-input-background);
-    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vscode-contrastBorder,transparent) 55%,transparent);
+#paint-tools input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
 }
-#sculpt-tools input[type="range"]::-webkit-slider-thumb{
-    width:14px;
-    height:14px;
-    margin-top:-5px;
-    appearance:none;
-    -webkit-appearance:none;
-    border:2px solid var(--vscode-editorWidget-background);
-    border-radius:50%;
-    background:var(--vscode-focusBorder);
-    box-shadow:0 1px 3px var(--vscode-widget-shadow);
+#paint-toggle.active {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
 }
-#sculpt-tools input[type="range"]:hover::-webkit-slider-thumb{transform:scale(1.12)}
-#sculpt-tools input[type="range"]:focus-visible{outline:none}
-#sculpt-tools input[type="range"]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px var(--vscode-focusBorder)}
-#sculpt-brushes{
-    position:absolute;
-    z-index:3;
-    left:14px;
-    bottom:14px;
-    display:flex;
-    flex-direction:column;
-    gap:4px;
-    width:116px;
-    padding:8px;
-    border:1px solid var(--vscode-panel-border);
-    border-radius:8px;
-    background:var(--vscode-editorWidget-background);
-    box-shadow:0 4px 14px var(--vscode-widget-shadow);
+#preview canvas.painting {
+  cursor: crosshair;
 }
-#sculpt-brushes strong{padding:2px 4px 5px;color:var(--vscode-descriptionForeground);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
-.sculpt-brush{width:100%;text-align:left;background:transparent}
-.sculpt-brush:hover{background:var(--vscode-list-hoverBackground)}
-.sculpt-brush.active{color:var(--vscode-list-activeSelectionForeground);background:var(--vscode-list-activeSelectionBackground)}
-#terrain-modes{
-    position:absolute;
-    z-index:4;
-    top:14px;
-    left:50%;
-    display:flex;
-    padding:3px;
-    border:1px solid var(--vscode-panel-border);
-    border-radius:8px;
-    background:var(--vscode-editorWidget-background);
-    box-shadow:0 3px 10px var(--vscode-widget-shadow);
-    transform:translateX(-50%);
+#sculpt-tools {
+  position: absolute;
+  z-index: 3;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 4px 14px var(--vscode-widget-shadow);
 }
-#terrain-modes button{height:26px;border-radius:5px;background:transparent}
-#terrain-modes button:hover{background:var(--vscode-list-hoverBackground)}
-#terrain-modes button.active{color:var(--vscode-list-activeSelectionForeground);background:var(--vscode-list-activeSelectionBackground)}
-#terrain-modes button:disabled{cursor:not-allowed;opacity:.42;background:transparent}
-#paint-target-wrap{
-    position:absolute;
-    z-index:4;
-    top:54px;
-    left:14px;
-    display:flex;
-    flex-direction:column;
-    gap:5px;
-    width:190px;
-    padding:9px;
-    border:1px solid var(--vscode-panel-border);
-    border-radius:8px;
-    background:var(--vscode-editorWidget-background);
-    box-shadow:0 3px 10px var(--vscode-widget-shadow);
+#sculpt-tools[hidden],
+#sculpt-brushes[hidden] {
+  display: none;
 }
-#paint-target-wrap[hidden]{display:none}
-#paint-target-wrap span{
-    color:var(--vscode-descriptionForeground);
-    font-size:11px;
-    font-weight:600;
-    text-transform:uppercase;
-    letter-spacing:.5px;
+#sculpt-tools label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
 }
-#paint-target{
-    width:100%;
-    height:28px;
-    padding:0 7px;
-    border:1px solid var(--vscode-dropdown-border,transparent);
-    border-radius:4px;
-    color:var(--vscode-dropdown-foreground);
-    background:var(--vscode-dropdown-background);
+#sculpt-tools input[type="range"] {
+  width: 82px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
 }
-#brush-list{
-    position:absolute;
-    z-index:3;
-    left:14px;
-    bottom:14px;
-    display:flex;
-    flex-direction:column;
-    gap:4px;
-    width:116px;
-    padding:8px;
-    border:1px solid var(--vscode-panel-border);
-    border-radius:8px;
-    background:var(--vscode-editorWidget-background);
-    box-shadow:0 4px 14px var(--vscode-widget-shadow);
+#sculpt-tools input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--vscode-input-background);
+  box-shadow: inset 0 0 0 1px
+    color-mix(
+      in srgb,
+      var(--vscode-contrastBorder, transparent) 55%,
+      transparent
+    );
 }
-#brush-list[hidden]{display:none}
-#brush-list strong{
-    padding:2px 4px 5px;
-    color:var(--vscode-descriptionForeground);
-    font-size:11px;
-    font-weight:600;
-    text-transform:uppercase;
-    letter-spacing:.5px;
+#sculpt-tools input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid var(--vscode-editorWidget-background);
+  border-radius: 50%;
+  background: var(--vscode-focusBorder);
+  box-shadow: 0 1px 3px var(--vscode-widget-shadow);
 }
-.brush-preset{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    width:100%;
-    height:32px;
-    padding:3px 6px;
-    text-align:left;
-    background:transparent;
+#sculpt-tools input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
 }
-.brush-preset:hover{background:var(--vscode-list-hoverBackground)}
-.brush-preset.active{
-    color:var(--vscode-list-activeSelectionForeground);
-    background:var(--vscode-list-activeSelectionBackground);
+#sculpt-tools input[type="range"]:focus-visible {
+  outline: none;
 }
-.brush-icon{
-    display:block;
-    flex:0 0 22px;
-    width:22px;
-    height:22px;
-    border-radius:50%;
-    background:#fff;
+#sculpt-tools input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder);
 }
-.brush-icon.soft{background:radial-gradient(circle,#fff 0 25%,rgba(255,255,255,.7) 48%,transparent 75%)}
-.brush-icon.hard{box-shadow:0 0 0 1px var(--vscode-contrastBorder,transparent)}
-.brush-icon.detail{width:14px;height:14px;flex-basis:22px;margin:4px;background:radial-gradient(circle,#fff 0 40%,transparent 75%)}
+#sculpt-brushes {
+  position: absolute;
+  z-index: 3;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 116px;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 4px 14px var(--vscode-widget-shadow);
+}
+#sculpt-brushes strong {
+  padding: 2px 4px 5px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.sculpt-brush {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+}
+.sculpt-brush:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.sculpt-brush.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+#terrain-modes {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  left: 50%;
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 3px 10px var(--vscode-widget-shadow);
+  transform: translateX(-50%);
+}
+#terrain-modes button {
+  height: 26px;
+  border-radius: 5px;
+  background: transparent;
+}
+#terrain-modes button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+#terrain-modes button.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+#terrain-modes button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  background: transparent;
+}
+#paint-target-wrap {
+  position: absolute;
+  z-index: 4;
+  top: 54px;
+  left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 190px;
+  padding: 9px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 3px 10px var(--vscode-widget-shadow);
+}
+#paint-target-wrap[hidden] {
+  display: none;
+}
+#paint-target-wrap span {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+#paint-target {
+  width: 100%;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  color: var(--vscode-dropdown-foreground);
+  background: var(--vscode-dropdown-background);
+}
+#brush-list {
+  position: absolute;
+  z-index: 3;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 116px;
+  padding: 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 4px 14px var(--vscode-widget-shadow);
+}
+#brush-list[hidden] {
+  display: none;
+}
+#brush-list strong {
+  padding: 2px 4px 5px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.brush-preset {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 3px 6px;
+  text-align: left;
+  background: transparent;
+}
+.brush-preset:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.brush-preset.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+.brush-icon {
+  display: block;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+}
+.brush-icon.soft {
+  background: radial-gradient(
+    circle,
+    #fff 0 25%,
+    rgba(255, 255, 255, 0.7) 48%,
+    transparent 75%
+  );
+}
+.brush-icon.hard {
+  box-shadow: 0 0 0 1px var(--vscode-contrastBorder, transparent);
+}
+.brush-icon.detail {
+  width: 14px;
+  height: 14px;
+  flex-basis: 22px;
+  margin: 4px;
+  background: radial-gradient(circle, #fff 0 40%, transparent 75%);
+}
