@@ -86,7 +86,7 @@ function renderSkeletonProperties() {
 	const vector = (property, labels) => `
 		<div class="property-row">
 			<div class="property-label">${property[0].toUpperCase() + property.slice(1)}</div>
-			<div class="vector">
+					<div class="vector vector-${dimensions}">
 				${labels.slice(0, 3).map((label, index) => `
 					<input type="number" step="any" title="${label}"
 						data-skeleton-vector="${property}" data-axis="${index}"
@@ -1331,11 +1331,12 @@ function bindGraphPropertyInputs() {
 			input.addEventListener('change', () => {
 				let value;
 
-				if (type === 'vector3') {
+				if (type === 'vector2' || type === 'vector3') {
+					const dimensions = type === 'vector2' ? 2 : 3;
 					value = inputs.map(field => Number(field.value));
 
 					if (
-						value.length !== 3 ||
+						value.length !== dimensions ||
 						inputs.some(field => field.value.trim() === '') ||
 						!value.every(Number.isFinite)
 					) return;
@@ -1683,16 +1684,18 @@ function createInput(component, name, value, schema) {
 				break;
 			}
 
+			case 'vector2':
 			case 'vector3': {
+				const dimensions = type === 'vector2' ? 2 : 3;
 				const values = Array.isArray(value)
 					? value.map(number => name === 'rotation'
 						? Number(THREE.MathUtils.radToDeg(number).toFixed(4))
 						: number)
-					: [0, 0, 0];
+					: Array(dimensions).fill(0);
 
 				input = `
                     <div class="vector">
-                        ${[0, 1, 2].map(axis => `
+						${Array.from({ length: dimensions }, (_, axis) => `
                             <input
                                 type="number"
                                 step="any"

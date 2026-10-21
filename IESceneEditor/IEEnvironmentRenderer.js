@@ -213,6 +213,31 @@ export default class IEEnvironmentRenderer {
         this.sunTarget.updateMatrixWorld();
     }
 
+    followCamera(camera) {
+        if (!this.sun?.castShadow || !this.sunTarget || !camera) return;
+
+        const direction = this.sun.position.clone().sub(this.sunTarget.position);
+        const shadowCamera = this.sun.shadow.camera;
+        const width = Math.abs(shadowCamera.right - shadowCamera.left);
+        const height = Math.abs(shadowCamera.top - shadowCamera.bottom);
+        const mapWidth = Math.max(1, this.sun.shadow.mapSize.x);
+        const mapHeight = Math.max(1, this.sun.shadow.mapSize.y);
+
+        // Snapping the tracked center to shadow-map texels prevents the
+        // projected shadows from crawling during small camera movements.
+        const center = camera.getWorldPosition(new THREE.Vector3());
+        const texelX = width / mapWidth;
+        const texelY = height / mapHeight;
+        center.x = Math.round(center.x / texelX) * texelX;
+        center.y = Math.round(center.y / texelY) * texelY;
+        center.z = Math.round(center.z / texelY) * texelY;
+
+        this.sunTarget.position.copy(center);
+        this.sun.position.copy(center).add(direction);
+        this.sunTarget.updateMatrixWorld();
+        this.sun.updateMatrixWorld();
+    }
+
     updateAmbient(component) {
         if (!component || component.enabled === false) {
             this.removeAmbient();

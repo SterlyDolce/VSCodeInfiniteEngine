@@ -258,6 +258,8 @@ suite('Extension Test Suite', () => {
 
 		assert.strictEqual(colorTexture.colorSpace, THREE.SRGBColorSpace);
 		assert.strictEqual(maskTexture.colorSpace, THREE.NoColorSpace);
+		assert.strictEqual(maskTexture.magFilter, THREE.LinearFilter);
+		assert.strictEqual(maskTexture.minFilter, THREE.LinearFilter);
 		assert.deepStrictEqual(
 			Array.from(maskTexture.image.data),
 			[128, 128, 128, 255]

@@ -1567,6 +1567,11 @@ let selectedActor;
 
 let selectedCamera;
 
+let armedAssetDrop = null;
+let assetDropPreview = null;
+let assetDropPreviewActor = null;
+let assetDragInside = false;
+
 let pointerDownX = 0;
 let pointerDownY = 0;
 
@@ -1591,6 +1596,20 @@ window.addEventListener('message', async (event) => {
 	const message = event.data;
 
 	switch (message.type) {
+		case 'armAssetDrop':
+			armedAssetDrop = message.item ?? null;
+			if (message.actor) {
+				assetDropPreviewActor = message.actor;
+				if (assetDropPreview?.userData.assetDropMarker) {
+					const position = assetDropPreview.position.clone();
+					clearAssetDropPreview();
+					createAssetDropPreview();
+					assetDropPreview?.position.copy(position);
+				}
+			}
+			if (assetDragInside) createAssetDropPreview();
+			break;
+
 		case 'loadScene':
 			await loadCustomNodeModules(message.customNodeModules);
 			loadEditorScene(message.scene);
@@ -2582,6 +2601,148 @@ function selectFromViewport(event) {
 
 	selectActor(actor);
 }
+
+const ASSET_DROP_MIME = 'application/vnd.infinite.asset';
+
+function readDroppedAsset(dataTransfer) {
+	let raw = dataTransfer?.getData(ASSET_DROP_MIME) ?? '';
+	if (!raw) {
+		raw = dataTransfer?.getData('text/plain') ?? '';
+		const prefix = 'infinite-asset:';
+		if (!raw.startsWith(prefix)) return null;
+		raw = raw.slice(prefix.length);
+	}
+	try {
+		const item = JSON.parse(raw);
+		return item?.kind === 'asset' && item.type === 'actor' ? item : null;
+	} catch {
+		return null;
+	}
+}
+
+function sceneDropPosition(clientX, clientY) {
+	const rect = renderer.domElement.getBoundingClientRect();
+	pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+	pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+	raycaster.setFromCamera(pointer, activeEditorCamera);
+
+	const hit = raycaster.intersectObjects(editorActorRoot.children, true)
+		.find(entry => entry.object.visible);
+	if (hit) return hit.point.toArray();
+
+	const point = new THREE.Vector3();
+	return raycaster.ray.intersectPlane(
+		new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+		point
+	)?.toArray() ?? controls.target.toArray();
+}
+
+function postAssetDrop(item, clientX, clientY) {
+	if (!item || isPlaying || editorMode !== 'scene') return;
+	postSceneUpdate('assetDrop', {
+		item,
+		position: sceneDropPosition(clientX, clientY)
+	});
+}
+
+function clearAssetDropPreview() {
+	if (!assetDropPreview) return;
+	assetDropPreview.removeFromParent();
+	disposeObject(assetDropPreview);
+	assetDropPreview = null;
+}
+
+function createAssetDropPreview() {
+	if (assetDropPreview || isPlaying || editorMode !== 'scene') return;
+	if (!assetDropPreviewActor) {
+		const material = new THREE.MeshBasicMaterial({
+			color: 0x35d7ff,
+			transparent: true,
+			opacity: 0.9,
+			side: THREE.DoubleSide,
+			depthTest: false
+		});
+		assetDropPreview = new THREE.Group();
+		assetDropPreview.userData.assetDropMarker = true;
+		const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 1, 48), material);
+		ring.rotation.x = -Math.PI / 2;
+		ring.renderOrder = 10000;
+		const stem = new THREE.Mesh(
+			new THREE.CylinderGeometry(0.035, 0.035, 2, 10),
+			material.clone()
+		);
+		stem.position.y = 1;
+		stem.renderOrder = 10000;
+		assetDropPreview.add(ring, stem);
+		editorScene.add(assetDropPreview);
+		return;
+	}
+	assetDropPreview = createActor(assetDropPreviewActor);
+	assetDropPreview.name = 'Actor Placement Preview';
+	assetDropPreview.traverse(object => {
+		object.raycast = () => {};
+		if (!object.material) return;
+		const materials = Array.isArray(object.material)
+			? object.material
+			: [object.material];
+		object.material = materials.map(material => {
+			const preview = material.clone();
+			preview.transparent = true;
+			preview.opacity = 0.45;
+			preview.depthWrite = false;
+			return preview;
+		});
+		if (object.material.length === 1) object.material = object.material[0];
+	});
+	editorScene.add(assetDropPreview);
+}
+
+function updateAssetDropPreview(clientX, clientY) {
+	if (!assetDropPreview) return;
+	assetDropPreview.position.fromArray(sceneDropPosition(clientX, clientY));
+	assetDropPreview.updateMatrixWorld(true);
+}
+
+window.addEventListener('dragover', event => {
+	const acceptsAsset = armedAssetDrop ||
+		[...(event.dataTransfer?.types ?? [])].includes(ASSET_DROP_MIME);
+	if (!acceptsAsset) return;
+	event.preventDefault();
+	if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+	assetDragInside = true;
+	createAssetDropPreview();
+	updateAssetDropPreview(event.clientX, event.clientY);
+}, true);
+
+window.addEventListener('drop', event => {
+	const item = readDroppedAsset(event.dataTransfer) ?? armedAssetDrop;
+	if (!item) return;
+	event.preventDefault();
+	event.stopPropagation();
+	armedAssetDrop = null;
+	assetDragInside = false;
+	assetDropPreviewActor = null;
+	clearAssetDropPreview();
+	postAssetDrop(item, event.clientX, event.clientY);
+}, true);
+
+window.addEventListener('dragleave', event => {
+	if (event.relatedTarget) return;
+	assetDragInside = false;
+	clearAssetDropPreview();
+}, true);
+
+// VS Code may terminate a tree drag at the webview boundary without exposing
+// its DataTransfer. Match the Visual Script editor's armed-drag fallback.
+window.addEventListener('mouseup', event => {
+	if (event.button !== 0 || !armedAssetDrop) return;
+	const item = armedAssetDrop;
+	armedAssetDrop = null;
+	assetDragInside = false;
+	assetDropPreviewActor = null;
+	clearAssetDropPreview();
+	postAssetDrop(item, event.clientX, event.clientY);
+}, true);
 
 function clearSelection() {
 	selectedActor = undefined;
@@ -4219,6 +4380,12 @@ function animate() {
 		updateEditorHelpers();
 		updateViewGizmo();
 	}
+
+	// Keep the environment sun's finite shadow volume centered on the active
+	// editor or gameplay camera instead of leaving it behind at world origin.
+	(isPlaying ? gameplayEnvironment : editorEnvironment).followCamera(
+		activeCamera
+	);
 
 	renderPass.scene = activeScene;
 

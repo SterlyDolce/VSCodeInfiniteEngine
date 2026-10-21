@@ -178,13 +178,17 @@ input[type="color"] {
     cursor: pointer;
 }
 
-/* Vector3 */
+/* Vectors */
 
 .vector {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 4px;
     min-width: 0;
+}
+
+.vector-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .vector input {

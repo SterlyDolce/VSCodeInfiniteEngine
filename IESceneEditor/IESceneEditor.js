@@ -29,6 +29,66 @@ class IESceneEditor {
 		this.sceneChangeHandler = undefined;
 		this.runtimeErrorHandler = undefined;
 		this.panelDisposeHandler = undefined;
+		this.assetDrag = null;
+	}
+
+	async armAssetDrop(item) {
+		this.assetDrag = { item: structuredClone(item), startedAt: Date.now() };
+		const panels = [...this.panels.entries()];
+		await Promise.all(panels.map(([, panel]) =>
+			panel.webview.postMessage({ type: 'armAssetDrop', item })
+		));
+		for (const [sceneKey, panel] of panels) {
+			void this.resolveActorPreview(vscode.Uri.parse(sceneKey), item)
+				.then(actor => {
+					if (!actor || this.assetDrag?.item?.uri !== item.uri) return;
+					return panel.webview.postMessage({ type: 'armAssetDrop', item, actor });
+				})
+				.catch(error => console.warn(
+					'Unable to prepare Actor Asset placement preview:', error
+				));
+		}
+	}
+
+	async resolveActorPreview(sceneUri, item) {
+		if (item?.type !== 'actor' || typeof item.uri !== 'string') return null;
+		const assetUri = vscode.Uri.parse(item.uri);
+		const workspace = vscode.workspace.getWorkspaceFolder(sceneUri);
+		if (!workspace || vscode.workspace.getWorkspaceFolder(assetUri)?.uri.toString() !== workspace.uri.toString()) return null;
+
+		const asset = JSON.parse(Buffer.from(
+			await vscode.workspace.fs.readFile(assetUri)
+		).toString('utf8'));
+		if (asset.type !== 'actor') return null;
+
+		const manager = new IEAssetManager(workspace.uri.fsPath);
+		await manager.scan();
+		const instance = IEActorInstance.create(asset);
+		const actor = await IEActorInstance.resolve(instance.toJSON(), manager);
+
+		for (const component of actor.components ?? []) {
+			if (component.type !== 'mesh') continue;
+			const geometry = await manager.resolve(component.geometry);
+			component.resolvedGeometry = geometry?.type === 'geometry' ? geometry.data : null;
+			component.resolvedMaterials = await Promise.all(
+				(component.materials ?? []).map(reference =>
+					manager.resolveMaterialForScene(reference)
+				)
+			);
+			if (component.skinned) {
+				const skeleton = await manager.resolve(component.skeleton);
+				component.resolvedSkeleton = skeleton?.type === 'skeleton' ? skeleton.data : null;
+			}
+		}
+
+		return actor;
+	}
+
+	getActiveAssetDrag() {
+		if (!this.assetDrag || Date.now() - this.assetDrag.startedAt > 30000) {
+			return null;
+		}
+		return structuredClone(this.assetDrag.item);
 	}
 
 	queueSceneEdit(sceneUri, operation) {
@@ -329,6 +389,14 @@ class IESceneEditor {
 							message
 						);
 						break;
+					case 'assetDrop':
+						this.assetDrag = null;
+						await this.dropActorAsset(
+							document.uri,
+							message.item ?? this.getActiveAssetDrag(),
+							message.position
+						);
+						break;
 					case 'scriptPrint':
 						if (Array.isArray(message.values)) {
 							this.printHandler?.(...message.values);
@@ -344,6 +412,45 @@ class IESceneEditor {
 				}
 			}
 		);
+	}
+
+	async dropActorAsset(sceneUri, item, position) {
+		if (
+			item?.kind !== 'asset' ||
+			item.type !== 'actor' ||
+			typeof item.uri !== 'string' ||
+			!Array.isArray(position) ||
+			position.length !== 3 ||
+			!position.every(Number.isFinite)
+		) return;
+
+		try {
+			const assetUri = vscode.Uri.parse(item.uri);
+			const workspace = vscode.workspace.getWorkspaceFolder(sceneUri);
+			if (!workspace || vscode.workspace.getWorkspaceFolder(assetUri)?.uri.toString() !== workspace.uri.toString()) {
+				throw new Error('Actor Asset must belong to the same project as the scene.');
+			}
+
+			const asset = JSON.parse(Buffer.from(
+				await vscode.workspace.fs.readFile(assetUri)
+			).toString('utf8'));
+			if (asset.type !== 'actor' || typeof asset.id !== 'string') {
+				throw new Error('Only Actor Assets can be dropped into a scene.');
+			}
+
+			const snapshot = await this.getSceneSnapshot(sceneUri);
+			const manager = new IEAssetManager(workspace.uri.fsPath);
+			await manager.scan();
+			const actor = await snapshot.scene.instantiateActor(
+				{ type: 'actor', id: asset.id }, manager, snapshot.scene.world.id
+			);
+			actor.position?.setValue?.(position);
+			await this.commitSceneSnapshot(snapshot, { selectedActorId: actor.id });
+		} catch (error) {
+			vscode.window.showErrorMessage(
+				`Failed to drop Actor Asset: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
 	}
 
 	async saveEditorState(sceneUri, state) {

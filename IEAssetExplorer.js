@@ -12,12 +12,47 @@ class IEAssetExplorer {
             this._onDidChangeTreeData.event;
 
         this.dropMimeTypes = ['text/uri-list'];
-        this.dragMimeTypes = [];
+        this.dragMimeTypes = [
+            'application/vnd.infinite.asset',
+            'text/plain'
+        ];
         this.importHandler = null;
+        this.assetDragHandler = null;
     }
 
     setImportHandler(handler) {
         this.importHandler = handler;
+    }
+
+    setAssetDragHandler(handler) {
+        this.assetDragHandler = handler;
+    }
+
+    async handleDrag(sources, dataTransfer) {
+        const items = sources.filter(item =>
+            !item?.isDirectory &&
+            item?.type === 'actor' &&
+            item.resourceUri?.path?.toLowerCase().endsWith('.ieasset')
+        );
+
+        if (items.length !== 1) return;
+
+        const payload = JSON.stringify({
+            kind: 'asset',
+            type: 'actor',
+            uri: items[0].resourceUri.toString()
+        });
+
+        await this.assetDragHandler?.(JSON.parse(payload));
+
+        dataTransfer.set(
+            'application/vnd.infinite.asset',
+            new vscode.DataTransferItem(payload)
+        );
+        dataTransfer.set(
+            'text/plain',
+            new vscode.DataTransferItem(`infinite-asset:${payload}`)
+        );
     }
 
     async handleDrop(_target, dataTransfer) {

@@ -240,6 +240,9 @@ async function activate(context) {
 	const ieProject = new IEProject(context);
 
 	const sceneEditor = new IESceneEditor(context);
+	assetExplorer.setAssetDragHandler(item =>
+		sceneEditor.armAssetDrop(item)
+	);
 	sceneEditor.setPanelDisposeHandler(async () => {
 		try {
 			if (engine.running) engine.stop();

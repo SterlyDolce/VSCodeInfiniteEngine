@@ -81,7 +81,13 @@ function createMaskTexture(signal) {
 		rgba[offset + 3] = 255;
 	}
 	const texture = createDataTexture({ width: source.width, height: source.height, data: rgba });
+	// Paint masks need interpolation at terrain scale. DataTexture otherwise
+	// defaults to nearest-neighbour sampling, exposing every mask texel as a
+	// visible square along blend boundaries.
+	texture.magFilter = THREE.LinearFilter;
+	texture.minFilter = THREE.LinearFilter;
 	texture.userData.sourceTextureId = source.id;
+	texture.needsUpdate = true;
 	return texture;
 }
 

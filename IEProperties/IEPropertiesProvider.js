@@ -23,6 +23,7 @@ class IEPropertiesProvider {
 		this.actor = undefined;
 		this.selectedSceneComponentId = null;
 		this.graphSelection = null;
+		this.graphAssets = new Map();
 		this.animationStateSelection = null;
 		this.skeletonSelection = null;
 	}
@@ -1159,16 +1160,27 @@ class IEPropertiesProvider {
 				this.activeEditor.assetType
 			)
 		) {
-			let assets = [];
+			const editorUri = this.activeEditor.uri;
+			let workspace;
 
 			try {
-				const editorUri = vscode.Uri.parse(
-					this.activeEditor.uri
-				);
-
-				const workspace = vscode.workspace.getWorkspaceFolder(
+				const uri = vscode.Uri.parse(
 					editorUri
 				);
+
+				workspace = vscode.workspace.getWorkspaceFolder(
+					uri
+				);
+
+				// Selection feedback should never wait for a project-wide asset
+				// scan. Reuse the latest asset list, then refresh it below.
+				await this.view.webview.postMessage({
+					type: 'setGraphSelection',
+					selection: this.graphSelection?.selection ?? null,
+					assets: workspace
+						? (this.graphAssets.get(workspace.uri.fsPath) ?? [])
+						: []
+				});
 
 				if (workspace) {
 					const manager = new IEAssetManager(
@@ -1177,11 +1189,13 @@ class IEPropertiesProvider {
 
 					await manager.scan();
 
-					assets = manager.getAssets().map(asset => ({
+					const assets = manager.getAssets().map(asset => ({
 						id: asset.id,
 						name: asset.name,
 						type: asset.type
 					}));
+
+					this.graphAssets.set(workspace.uri.fsPath, assets);
 				}
 			} catch (error) {
 				console.error(
@@ -1190,10 +1204,14 @@ class IEPropertiesProvider {
 				);
 			}
 
+			if (this.activeEditor?.uri !== editorUri) return;
+
 			await this.view.webview.postMessage({
 				type: 'setGraphSelection',
 				selection: this.graphSelection?.selection ?? null,
-				assets
+				assets: workspace
+					? (this.graphAssets.get(workspace.uri.fsPath) ?? [])
+					: []
 			});
 
 			return;
