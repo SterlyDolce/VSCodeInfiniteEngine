@@ -51,7 +51,7 @@ input:focus-visible {
 
 #workspace {
     display: grid;
-    grid-template-columns: minmax(480px, 1fr) minmax(380px, 1fr);
+    grid-template-columns: minmax(220px, 1fr) 7px minmax(220px, 1fr);
     grid-template-rows: 1fr 25px;
     background: var(--vscode-editor-background)
 }
@@ -61,8 +61,38 @@ input:focus-visible {
     position: relative;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
-    border-right: 1px solid var(--vscode-panel-border)
+    overflow: hidden
+}
+
+#splitter {
+    position: relative;
+    z-index: 5;
+    min-width: 7px;
+    cursor: col-resize;
+    touch-action: none;
+    background: var(--vscode-panel-border)
+}
+
+#splitter::after {
+    content: "";
+    position: absolute;
+    inset: 0 2px;
+    background: transparent
+}
+
+#splitter:hover::after,
+#splitter:focus-visible::after,
+body.resizing #splitter::after {
+    background: var(--vscode-focusBorder)
+}
+
+#splitter:focus-visible {
+    outline: none
+}
+
+body.resizing {
+    cursor: col-resize;
+    user-select: none
 }
 
 #graph {
@@ -197,3 +227,208 @@ footer.error {
     background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
     color: var(--vscode-menu-selectionForeground, var(--vscode-foreground))
 }
+#paint-tools{position:absolute;z-index:3;right:14px;bottom:14px;display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--vscode-panel-border);border-radius:8px;background:var(--vscode-editorWidget-background);box-shadow:0 4px 14px var(--vscode-widget-shadow);}
+#paint-tools[hidden],#paint-tools [hidden]{display:none}
+#paint-tools label{display:flex;align-items:center;gap:4px;color:var(--vscode-descriptionForeground);font-size:11px}
+#paint-tools input[type="range"]{
+    width:82px;
+    height:18px;
+    margin:0;
+    padding:0;
+    appearance:none;
+    -webkit-appearance:none;
+    background:transparent;
+    cursor:pointer;
+}
+#paint-tools input[type="range"]::-webkit-slider-runnable-track{
+    height:4px;
+    border-radius:999px;
+    background:var(--vscode-input-background);
+    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vscode-contrastBorder,transparent) 55%,transparent);
+}
+#paint-tools input[type="range"]::-webkit-slider-thumb{
+    width:14px;
+    height:14px;
+    margin-top:-5px;
+    appearance:none;
+    -webkit-appearance:none;
+    border:2px solid var(--vscode-editorWidget-background);
+    border-radius:50%;
+    background:var(--vscode-focusBorder);
+    box-shadow:0 1px 3px var(--vscode-widget-shadow);
+}
+#paint-tools input[type="range"]:hover::-webkit-slider-thumb{
+    transform:scale(1.12);
+}
+#paint-tools input[type="range"]:focus-visible{
+    outline:none;
+}
+#paint-tools input[type="range"]:focus-visible::-webkit-slider-thumb{
+    box-shadow:0 0 0 2px var(--vscode-focusBorder);
+}
+#paint-toggle.active{color:var(--vscode-button-foreground);background:var(--vscode-button-background)}
+#preview canvas.painting{cursor:crosshair}
+#sculpt-tools{
+    position:absolute;
+    z-index:3;
+    right:14px;
+    bottom:14px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:8px;
+    border:1px solid var(--vscode-panel-border);
+    border-radius:8px;
+    background:var(--vscode-editorWidget-background);
+    box-shadow:0 4px 14px var(--vscode-widget-shadow);
+}
+#sculpt-tools[hidden],#sculpt-brushes[hidden]{display:none}
+#sculpt-tools label{display:flex;align-items:center;gap:4px;color:var(--vscode-descriptionForeground);font-size:11px}
+#sculpt-tools input[type="range"]{
+    width:82px;
+    height:18px;
+    margin:0;
+    padding:0;
+    appearance:none;
+    -webkit-appearance:none;
+    background:transparent;
+    cursor:pointer;
+}
+#sculpt-tools input[type="range"]::-webkit-slider-runnable-track{
+    height:4px;
+    border-radius:999px;
+    background:var(--vscode-input-background);
+    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vscode-contrastBorder,transparent) 55%,transparent);
+}
+#sculpt-tools input[type="range"]::-webkit-slider-thumb{
+    width:14px;
+    height:14px;
+    margin-top:-5px;
+    appearance:none;
+    -webkit-appearance:none;
+    border:2px solid var(--vscode-editorWidget-background);
+    border-radius:50%;
+    background:var(--vscode-focusBorder);
+    box-shadow:0 1px 3px var(--vscode-widget-shadow);
+}
+#sculpt-tools input[type="range"]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+#sculpt-tools input[type="range"]:focus-visible{outline:none}
+#sculpt-tools input[type="range"]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px var(--vscode-focusBorder)}
+#sculpt-brushes{
+    position:absolute;
+    z-index:3;
+    left:14px;
+    bottom:14px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    width:116px;
+    padding:8px;
+    border:1px solid var(--vscode-panel-border);
+    border-radius:8px;
+    background:var(--vscode-editorWidget-background);
+    box-shadow:0 4px 14px var(--vscode-widget-shadow);
+}
+#sculpt-brushes strong{padding:2px 4px 5px;color:var(--vscode-descriptionForeground);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.sculpt-brush{width:100%;text-align:left;background:transparent}
+.sculpt-brush:hover{background:var(--vscode-list-hoverBackground)}
+.sculpt-brush.active{color:var(--vscode-list-activeSelectionForeground);background:var(--vscode-list-activeSelectionBackground)}
+#terrain-modes{
+    position:absolute;
+    z-index:4;
+    top:14px;
+    left:50%;
+    display:flex;
+    padding:3px;
+    border:1px solid var(--vscode-panel-border);
+    border-radius:8px;
+    background:var(--vscode-editorWidget-background);
+    box-shadow:0 3px 10px var(--vscode-widget-shadow);
+    transform:translateX(-50%);
+}
+#terrain-modes button{height:26px;border-radius:5px;background:transparent}
+#terrain-modes button:hover{background:var(--vscode-list-hoverBackground)}
+#terrain-modes button.active{color:var(--vscode-list-activeSelectionForeground);background:var(--vscode-list-activeSelectionBackground)}
+#terrain-modes button:disabled{cursor:not-allowed;opacity:.42;background:transparent}
+#paint-target-wrap{
+    position:absolute;
+    z-index:4;
+    top:54px;
+    left:14px;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    width:190px;
+    padding:9px;
+    border:1px solid var(--vscode-panel-border);
+    border-radius:8px;
+    background:var(--vscode-editorWidget-background);
+    box-shadow:0 3px 10px var(--vscode-widget-shadow);
+}
+#paint-target-wrap[hidden]{display:none}
+#paint-target-wrap span{
+    color:var(--vscode-descriptionForeground);
+    font-size:11px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.5px;
+}
+#paint-target{
+    width:100%;
+    height:28px;
+    padding:0 7px;
+    border:1px solid var(--vscode-dropdown-border,transparent);
+    border-radius:4px;
+    color:var(--vscode-dropdown-foreground);
+    background:var(--vscode-dropdown-background);
+}
+#brush-list{
+    position:absolute;
+    z-index:3;
+    left:14px;
+    bottom:14px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    width:116px;
+    padding:8px;
+    border:1px solid var(--vscode-panel-border);
+    border-radius:8px;
+    background:var(--vscode-editorWidget-background);
+    box-shadow:0 4px 14px var(--vscode-widget-shadow);
+}
+#brush-list[hidden]{display:none}
+#brush-list strong{
+    padding:2px 4px 5px;
+    color:var(--vscode-descriptionForeground);
+    font-size:11px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.5px;
+}
+.brush-preset{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    width:100%;
+    height:32px;
+    padding:3px 6px;
+    text-align:left;
+    background:transparent;
+}
+.brush-preset:hover{background:var(--vscode-list-hoverBackground)}
+.brush-preset.active{
+    color:var(--vscode-list-activeSelectionForeground);
+    background:var(--vscode-list-activeSelectionBackground);
+}
+.brush-icon{
+    display:block;
+    flex:0 0 22px;
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    background:#fff;
+}
+.brush-icon.soft{background:radial-gradient(circle,#fff 0 25%,rgba(255,255,255,.7) 48%,transparent 75%)}
+.brush-icon.hard{box-shadow:0 0 0 1px var(--vscode-contrastBorder,transparent)}
+.brush-icon.detail{width:14px;height:14px;flex-basis:22px;margin:4px;background:radial-gradient(circle,#fff 0 40%,transparent 75%)}

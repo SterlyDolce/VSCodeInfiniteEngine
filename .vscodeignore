@@ -1,10 +1,60 @@
 .vscode/**
 .vscode-test/**
 test/**
+unit-test/**
+.codex-staging/**
+.agents/**
+.codex/**
+.DS_Store
+**/.DS_Store
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
 **/jsconfig.json
 **/*.map
+**/*.d.ts
 **/eslint.config.mjs
 **/.vscode-test.*
+package-lock.json
+package copy.json
+*.vsix
+theme
+Models/ViewGizmo copy.glb
+Models/Videocamera_LP-no-bevel_v01.fbx
+
+# Three.js ships source, WebGPU, examples, fonts, and editor assets that IE
+# does not load. Keep the WebGL runtime and explicitly preserve IE's addons;
+# vsce may still retain other files belonging to the production dependency.
+node_modules/three/src/**
+node_modules/three/build/three.webgpu*.js
+node_modules/three/build/three.tsl.js
+node_modules/three/examples/**
+!node_modules/three/examples/jsm/
+node_modules/three/examples/jsm/**
+!node_modules/three/examples/jsm/controls/
+node_modules/three/examples/jsm/controls/**
+!node_modules/three/examples/jsm/loaders/
+node_modules/three/examples/jsm/loaders/**
+!node_modules/three/examples/jsm/postprocessing/
+node_modules/three/examples/jsm/postprocessing/**
+!node_modules/three/examples/jsm/shaders/
+node_modules/three/examples/jsm/shaders/**
+!node_modules/three/examples/jsm/utils/
+node_modules/three/examples/jsm/utils/**
+!node_modules/three/examples/jsm/controls/OrbitControls.js
+!node_modules/three/examples/jsm/controls/TransformControls.js
+!node_modules/three/examples/jsm/loaders/GLTFLoader.js
+!node_modules/three/examples/jsm/postprocessing/EffectComposer.js
+!node_modules/three/examples/jsm/postprocessing/MaskPass.js
+!node_modules/three/examples/jsm/postprocessing/OutlinePass.js
+!node_modules/three/examples/jsm/postprocessing/Pass.js
+!node_modules/three/examples/jsm/postprocessing/RenderPass.js
+!node_modules/three/examples/jsm/postprocessing/ShaderPass.js
+!node_modules/three/examples/jsm/shaders/CopyShader.js
+!node_modules/three/examples/jsm/utils/BufferGeometryUtils.js
+!node_modules/three/examples/jsm/utils/SkeletonUtils.js
+
+# The browser-compatible Rapier module embeds its WASM payload. IE does not
+# load the CommonJS build or the standalone generated bindings.
+node_modules/@dimforge/rapier3d-compat/dist/**
+!node_modules/@dimforge/rapier3d-compat/dist/rapier.mjs

@@ -2,7 +2,7 @@
 const { worldNodeRegistry } = require('./WorldNodeRegistry');
 
 class IETerrainGraphEvaluator {
-    constructor(registry = worldNodeRegistry, options = {}) { this.registry = registry; this.maxResolution = options.maxResolution ?? 256; this.textures = options.textures ?? new Map(); }
+    constructor(registry = worldNodeRegistry, options = {}) { this.registry = registry; this.maxResolution = options.maxResolution ?? 256; this.textures = options.textures ?? new Map(); this.materials = options.materials ?? new Map(); }
     validate(graph) {
         const errors = [], nodes = graph?.nodes ?? [], links = graph?.links ?? [];
         if (!Array.isArray(nodes) || !Array.isArray(links)) return { valid: false, errors: ['Graph nodes and links must be arrays'] };
@@ -41,7 +41,7 @@ class IETerrainGraphEvaluator {
         for (const node of nodes) for (const pin of node.pins ?? []) pinIndex.set(pin.id, { node, pin });
         for (const link of graph.links) incoming.set(link.to, link.from);
         const evaluateNode = node => { if (cache.has(node.id)) return cache.get(node.id); const definition = this.registry.get(node.type);
-            const result = definition.evaluate({ maxResolution: this.maxResolution, node, resolveTexture: reference => { const texture = this.textures.get(typeof reference === 'string' ? reference : reference?.id); if (!texture) throw new Error(`Texture data is unavailable: ${reference?.name ?? (typeof reference === 'string' ? reference : reference?.id)}`); return texture; }, read: name => { const pin = node.pins.find(p => p.direction === 'input' && p.name === name); if (!pin) throw new Error(`${definition.name} is missing input ${name}`); const source = pinIndex.get(incoming.get(pin.id)); if (!source) return pin.value; return evaluateNode(source.node)[source.pin.name]; } });
+            const result = definition.evaluate({ maxResolution: this.maxResolution, node, resolveTexture: reference => { const texture = this.textures.get(typeof reference === 'string' ? reference : reference?.id); if (!texture) throw new Error(`Texture data is unavailable: ${reference?.name ?? (typeof reference === 'string' ? reference : reference?.id)}`); return texture; }, read: name => { const pin = node.pins.find(p => p.direction === 'input' && p.name === name); if (!pin) throw new Error(`${definition.name} is missing input ${name}`); const source = pinIndex.get(incoming.get(pin.id)); if (!source) { if (pin.type === 'material') { const id = typeof pin.value === 'string' ? pin.value : pin.value?.id; if (id && this.materials.has(id)) return this.materials.get(id); } return pin.value; } return evaluateNode(source.node)[source.pin.name]; } });
             cache.set(node.id, result); return result; };
         const output = nodes.find(node => node.type === 'world.terrainOutput');
         return { terrain: evaluateNode(output).Terrain, evaluatedNodeIds: [...cache.keys()], errors: [] };

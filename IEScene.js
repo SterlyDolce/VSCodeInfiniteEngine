@@ -19,6 +19,7 @@ class IEScene {
         this.path = scenePath;
         this.name = undefined;
         this.version = 1;
+        this.editorState = undefined;
         this.actors = [];
 
         this.world = new WorldActor(this.name || 'Untitled', undefined);
@@ -51,6 +52,9 @@ class IEScene {
 
         this.name = data.name ?? this.getDefaultName();
         this.version = data.version ?? 1;
+        this.editorState = data.editorState
+            ? structuredClone(data.editorState)
+            : undefined;
 
         this.actors = Array.isArray(data.actors)
             ? data.actors.map(actorData => ActorRegistry.fromJSON(actorData))
@@ -68,6 +72,7 @@ class IEScene {
     createDefaultScene() {
         this.name = this.getDefaultName();
         this.version = 1;
+        this.editorState = undefined;
         this.world = new WorldActor('World', undefined);
         this.actors = [this.world];
     }
@@ -182,6 +187,9 @@ class IEScene {
 
         scene.name = data.name ?? 'Scene';
         scene.version = data.version ?? 1;
+        scene.editorState = data.editorState
+            ? structuredClone(data.editorState)
+            : undefined;
 
         scene.actors = Array.isArray(data.actors)
             ? data.actors.map(actorData => ActorRegistry.fromJSON(actorData))

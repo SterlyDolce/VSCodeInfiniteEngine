@@ -11,6 +11,7 @@ class IEPointLightComponent extends IETransformableComponent {
         this.intensity = new IENumber(1);
         this.distance = new IENumber(0);
         this.decay = new IENumber(2);
+        this.castShadow = false;
     }
 
     getProperties() {
@@ -31,6 +32,10 @@ class IEPointLightComponent extends IETransformableComponent {
             decay: {
                 type: 'number',
                 exposed: true
+            },
+            castShadow: {
+                type: 'boolean',
+                exposed: true
             }
         };
     }
@@ -41,7 +46,8 @@ class IEPointLightComponent extends IETransformableComponent {
             color: this.color.getValue(),
             intensity: this.intensity.getValue(),
             distance: this.distance.getValue(),
-            decay: this.decay.getValue()
+            decay: this.decay.getValue(),
+            castShadow: this.castShadow
         };
     }
 
@@ -52,6 +58,7 @@ class IEPointLightComponent extends IETransformableComponent {
         component.intensity.setValue(data.intensity ?? 1);
         component.distance.setValue(data.distance ?? 0);
         component.decay.setValue(data.decay ?? 2);
+        component.castShadow = data.castShadow ?? false;
 
         return component;
     }

@@ -2,7 +2,7 @@
   "name": "infinite-engine",
   "displayName": "Infinite Engine",
   "description": "Infinite Engine — a powerful, extensible 3D game engine and visual scripting environment built directly into Visual Studio Code.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "sterlyd",
   "icon": "images/icon.png",
   "license": "MIT",
@@ -30,7 +30,9 @@
     "actor components"
   ],
   "main": "./extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "workspaceContains:Infinite.ieproject"
+  ],
   "contributes": {
     "commands": [
       {
@@ -50,6 +52,12 @@
         "title": "Create Asset",
         "category": "Infinite Engine",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "infinite.createAssetFolder",
+        "title": "New Asset Folder",
+        "category": "Infinite Engine",
+        "icon": "$(new-folder)"
       },
       {
         "command": "infinite.importAssets",
@@ -242,14 +250,19 @@
     "menus": {
       "view/item/context": [
         {
+          "command": "infinite.createAssetFolder",
+          "when": "view == infinite.assetExplorer && (viewItem == infinite.project || viewItem == infinite.folder)",
+          "group": "inline@1"
+        },
+        {
           "command": "infinite.importAssets",
           "when": "view == infinite.assetExplorer && viewItem == infinite.project",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
           "command": "infinite.importAssets",
           "when": "view == infinite.assetExplorer && viewItem == infinite.folder",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
           "command": "infinite.addActor",
@@ -336,19 +349,24 @@
       ],
       "view/title": [
         {
+          "command": "infinite.createAssetFolder",
+          "when": "view == infinite.assetExplorer && infinite.projectOpen",
+          "group": "navigation@1"
+        },
+        {
           "command": "infinite.refreshAssets",
           "when": "view == infinite.assetExplorer",
-          "group": "navigation@2"
+          "group": "navigation@4"
         },
         {
           "command": "infinite.createAsset",
           "when": "view == infinite.assetExplorer",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "infinite.importAssets",
           "when": "view == infinite.assetExplorer && infinite.projectOpen",
-          "group": "navigation@2"
+          "group": "navigation@3"
         }
       ],
       "explorer/context": [
@@ -470,7 +488,9 @@
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
-    "test": "vscode-test",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node --test unit-test/**/*.test.js",
+    "test:integration": "vscode-test",
     "package": "vsce package",
     "publish": "vsce publish"
   },

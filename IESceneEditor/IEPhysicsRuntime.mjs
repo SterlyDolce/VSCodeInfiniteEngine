@@ -319,6 +319,47 @@ export class IEPhysicsRuntime {
 		return hit ? Math.max(0, Math.min(distance, hit.time_of_impact)) : null;
 	}
 
+	getGroundContact(actor, origin, maxDistance = 1) {
+		if (!this.ready || !this.world || !origin) return null;
+
+		const body = this.getBody(actor);
+		if (!body) return null;
+
+		const ray = new RAPIER.Ray(
+			{ x: origin.x, y: origin.y, z: origin.z },
+			{ x: 0, y: -1, z: 0 }
+		);
+		const hit = this.world.castRayAndGetNormal(
+			ray,
+			Math.max(0, finite(maxDistance, 1)),
+			true,
+			undefined,
+			undefined,
+			undefined,
+			body
+		);
+
+		if (!hit || hit.normal.y < 0.25) return null;
+
+		const distance = finite(
+			hit.timeOfImpact ?? hit.toi,
+			0
+		);
+		return {
+			distance,
+			point: {
+				x: origin.x,
+				y: origin.y - distance,
+				z: origin.z
+			},
+			normal: {
+				x: hit.normal.x,
+				y: hit.normal.y,
+				z: hit.normal.z
+			}
+		};
+	}
+
 	isGrounded(actor, tolerance = 0.15) {
 		if (!this.ready || !this.world) return false;
 

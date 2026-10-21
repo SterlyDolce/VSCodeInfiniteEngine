@@ -7,8 +7,9 @@ const IEAssetManager = require('../IEAssetManager');
 const ActorRegistry = require('../ActorRegistry');
 const registerActors = require('../Actors/registerActors');
 const IETerrainGraphEvaluator = require('../IEWorldEditor/IETerrainGraphEvaluator');
-const { resolveTerrainTextures } = require('../IEWorldEditor/IETextureDataDecoder');
+const { resolveTerrainTextures, resolveTerrainMaterials } = require('../IEWorldEditor/IETextureDataDecoder');
 const crypto = require('crypto');
+const { findCustomNodeFiles } = require('../IECustomNodeLoader');
 
 registerActors();
 
@@ -18,6 +19,34 @@ class IESceneEditor {
 		this.context = context;
 
 		this.panels = new Map();
+		this.sceneSelections = new Map();
+		this.sceneEditQueues = new Map();
+		this.editorStateMemory = new Map();
+		this.sceneLifecycles = new Map();
+		this.sceneLoadVersions = new Map();
+		this.pendingPlayRefreshes = new Set();
+		this.playStartRequests = new Map();
+		this.sceneChangeHandler = undefined;
+		this.runtimeErrorHandler = undefined;
+		this.panelDisposeHandler = undefined;
+	}
+
+	queueSceneEdit(sceneUri, operation) {
+		const key = sceneUri.toString();
+		const previous = this.sceneEditQueues.get(key) ?? Promise.resolve();
+		const result = previous.catch(() => undefined).then(operation);
+		const cleanup = () => {
+			if (this.sceneEditQueues.get(key) === tracked) {
+				this.sceneEditQueues.delete(key);
+			}
+		};
+		const tracked = result.then(cleanup, cleanup);
+		this.sceneEditQueues.set(key, tracked);
+		return result;
+	}
+
+	async waitForSceneEdits(sceneUri) {
+		await this.sceneEditQueues.get(sceneUri.toString())?.catch(() => undefined);
 	}
 
 	async resolveCustomTextEditor(document, webviewPanel) {
@@ -27,6 +56,7 @@ class IESceneEditor {
 			sceneKey,
 			webviewPanel
 		);
+		this.sceneLifecycles.set(sceneKey, 'editing');
 
 		await this.context.workspaceState.update(
 			'activeSceneUri',
@@ -34,8 +64,46 @@ class IESceneEditor {
 		);
 
 		webviewPanel.onDidDispose(() => {
+			const lifecycle = this.sceneLifecycles.get(sceneKey);
 			this.panels.delete(sceneKey);
+			this.sceneSelections.delete(sceneKey);
+			this.sceneLoadVersions.set(
+				sceneKey,
+				(this.sceneLoadVersions.get(sceneKey) ?? 0) + 1
+			);
+			this.sceneLifecycles.delete(sceneKey);
+			this.pendingPlayRefreshes.delete(sceneKey);
+			for (const [requestId, request] of this.playStartRequests) {
+				if (request.sceneKey !== sceneKey) continue;
+				clearTimeout(request.timer);
+				request.reject(new Error('Scene editor closed while play mode was starting.'));
+				this.playStartRequests.delete(requestId);
+			}
+			if (['starting', 'playing', 'paused', 'stopping'].includes(lifecycle)) {
+				void Promise.resolve(
+					this.panelDisposeHandler?.(document.uri, lifecycle)
+				).catch(error => console.error(
+					'Failed to clean up disposed scene runtime:',
+					error
+				));
+			}
 		});
+
+		const sceneUndoWatcher = vscode.workspace.onDidChangeTextDocument(event => {
+			if (event.document.uri.toString() !== sceneKey) return;
+			if (![
+				vscode.TextDocumentChangeReason.Undo,
+				vscode.TextDocumentChangeReason.Redo
+			].includes(event.reason)) return;
+
+			void this.syncSceneAfterHistoryChange(document.uri).catch(error => {
+				console.error('Failed to synchronize scene history:', error);
+				vscode.window.showErrorMessage(
+					`Failed to refresh scene after undo/redo: ${error instanceof Error ? error.message : String(error)}`
+				);
+			});
+		});
+		webviewPanel.onDidDispose(() => sceneUndoWatcher.dispose());
 
 		const terrainWatcher = vscode.workspace.onDidChangeTextDocument(event => {
 			if (event.document.uri.toString() === document.uri.toString() || !event.document.uri.path.endsWith('.ieasset')) return;
@@ -48,6 +116,9 @@ class IESceneEditor {
 		webviewPanel.webview.options = {
 			enableScripts: true,
 			localResourceRoots: [
+				...(vscode.workspace.getWorkspaceFolder(document.uri)
+					? [vscode.workspace.getWorkspaceFolder(document.uri).uri]
+					: []),
 				vscode.Uri.joinPath(
 					this.context.extensionUri,
 					'IESceneEditor'
@@ -59,6 +130,10 @@ class IESceneEditor {
 				vscode.Uri.joinPath(
 					this.context.extensionUri,
 					'Models'
+				),
+				vscode.Uri.joinPath(
+					this.context.extensionUri,
+					'images'
 				)
 			]
 		};
@@ -120,6 +195,20 @@ class IESceneEditor {
 			'ViewGizmo.glb'
 		);
 
+		const checkerTexturePath = vscode.Uri.joinPath(
+			this.context.extensionUri,
+			'images',
+			'checkers.png'
+		);
+		const editorIconUri = name => webviewPanel.webview.asWebviewUri(
+			vscode.Uri.joinPath(
+				this.context.extensionUri,
+				'images',
+				'editor-icons',
+				`${name}.svg`
+			)
+		).toString();
+
 		const cameraModelUri =
 			webviewPanel.webview.asWebviewUri(
 				cameraModelPath
@@ -128,6 +217,11 @@ class IESceneEditor {
 		const viewGizmoModelUri =
 			webviewPanel.webview.asWebviewUri(
 				viewGizmoModelPath
+			);
+
+		const checkerTextureUri =
+			webviewPanel.webview.asWebviewUri(
+				checkerTexturePath
 			);
 
 		const styleUri =
@@ -178,6 +272,22 @@ class IESceneEditor {
 			.replace(
 				'{{VIEW_GIZMO_MODEL_URI}}',
 				viewGizmoModelUri.toString()
+			)
+			.replace(
+				'{{CHECKER_TEXTURE_URI}}',
+				checkerTextureUri.toString()
+			)
+			.replace(
+				'{{MOVE_ICON_URI}}',
+				editorIconUri('move')
+			)
+			.replace(
+				'{{ROTATE_ICON_URI}}',
+				editorIconUri('rotate')
+			)
+			.replace(
+				'{{SCALE_ICON_URI}}',
+				editorIconUri('scale')
 			);
 
 		webviewPanel.webview.html = html;
@@ -210,20 +320,86 @@ class IESceneEditor {
 							message
 						);
 						break;
+					case 'saveEditorState':
+						await this.saveEditorState(document.uri, message.state);
+						break;
+					case 'duplicateActorTransform':
+						await this.duplicateActorAtTransform(
+							document.uri,
+							message
+						);
+						break;
 					case 'scriptPrint':
 						if (Array.isArray(message.values)) {
 							this.printHandler?.(...message.values);
 						}
+						break;
+					case 'runtimeError':
+						this.runtimeErrorHandler?.(message.error ?? {});
+						break;
+					case 'playStarted':
+					case 'playStartFailed':
+						this.finishPlayStart(message);
 						break;
 				}
 			}
 		);
 	}
 
+	async saveEditorState(sceneUri, state) {
+		const finiteArray = (value, length) =>
+			Array.isArray(value) && value.length === length && value.every(Number.isFinite);
+		const validViews = new Set([
+			'perspective', 'top', 'bottom', 'front', 'back', 'left', 'right'
+		]);
+
+		if (
+			!state || typeof state !== 'object' ||
+			!validViews.has(state.camera?.view) ||
+			!finiteArray(state.camera?.position, 3) ||
+			!finiteArray(state.camera?.quaternion, 4) ||
+			!finiteArray(state.camera?.target, 3) ||
+			!Number.isFinite(state.camera?.flySpeed)
+		) return;
+
+		return this.queueSceneEdit(sceneUri, () =>
+			this.saveEditorStateNow(sceneUri, state)
+		);
+	}
+
+	async saveEditorStateNow(sceneUri, state) {
+		const key = this.editorStateKey(sceneUri);
+		const value = structuredClone(state);
+		this.editorStateMemory.set(key, value);
+		await this.context?.workspaceState?.update(key, value);
+	}
+
+	editorStateKey(sceneUri) {
+		return `infinite.sceneEditorState.${sceneUri.toString()}`;
+	}
+
+	async getEditorState(sceneUri, legacyState = undefined) {
+		const key = this.editorStateKey(sceneUri);
+		const stored = this.context?.workspaceState?.get(key) ??
+			this.editorStateMemory.get(key);
+		if (stored) return structuredClone(stored);
+
+		if (legacyState) {
+			await this.saveEditorStateNow(sceneUri, legacyState);
+			return structuredClone(legacyState);
+		}
+
+		return undefined;
+	}
+
 	selectActor(
 		sceneUri,
 		actorId
 	) {
+		this.sceneSelections.set(sceneUri.toString(), {
+			actorId,
+			componentId: null
+		});
 		const panel = this.getPanel(sceneUri);
 
 		if (!panel) return
@@ -234,10 +410,44 @@ class IESceneEditor {
 		});
 	}
 
+	selectComponent(sceneUri, actorId, componentId) {
+		const key = sceneUri.toString();
+		const selection = this.sceneSelections.get(key);
+		if (selection?.actorId !== actorId) return false;
+		this.sceneSelections.set(key, { actorId, componentId: componentId ?? null });
+		return true;
+	}
+
+	getSelection(sceneUri) {
+		const selection = this.sceneSelections.get(sceneUri.toString());
+		return selection ? { ...selection } : null;
+	}
+
+	clearSelection(sceneUri) {
+		this.sceneSelections.delete(sceneUri.toString());
+		this.getPanel(sceneUri)?.webview.postMessage({
+			type: 'selectActor',
+			actorId: null
+		});
+	}
+
+	assertSceneEditable(sceneUri) {
+		const lifecycle = this.sceneLifecycles.get(sceneUri.toString());
+		if (lifecycle && lifecycle !== 'editing') {
+			throw new Error(`Scene editing is disabled while the scene is ${lifecycle}.`);
+		}
+	}
+
 	async updateProperty(sceneUri, data) {
 		if (!['actor', 'component'].includes(data?.target)) return;
 		if (typeof data.id !== 'string' || typeof data.property !== 'string') return;
+		return this.queueSceneEdit(sceneUri, () =>
+			this.updatePropertyNow(sceneUri, data)
+		);
+	}
 
+	async updatePropertyNow(sceneUri, data) {
+		this.assertSceneEditable(sceneUri);
 		const document = await vscode.workspace.openTextDocument(sceneUri);
 		const originalText = document.getText();
 		const scene = IEScene.fromJSON(JSON.parse(originalText));
@@ -359,9 +569,17 @@ class IESceneEditor {
 
 
 	async updateActorTransform(sceneUri, message) {
+		return this.queueSceneEdit(sceneUri, () =>
+			this.updateActorTransformNow(sceneUri, message)
+		);
+	}
+
+	async updateActorTransformNow(sceneUri, message) {
 		try {
-			const scene = new IEScene(sceneUri);
-			await scene.load();
+			this.assertSceneEditable(sceneUri);
+			const document = await vscode.workspace.openTextDocument(sceneUri);
+			const originalText = document.getText();
+			const scene = IEScene.fromJSON(JSON.parse(originalText));
 
 			const actor = scene.getActor(message.actorId);
 			if (!actor || actor.type === 'World') return;
@@ -405,18 +623,179 @@ class IESceneEditor {
 				actor.scale.setValue(message.scale);
 			}
 
-			await scene.save();
+			const updatedText = `${JSON.stringify(scene.toJSON(), null, 4)}\n`;
+			if (updatedText === originalText) return;
 
-			await vscode.commands.executeCommand(
-				'infinite.selectActor',
-				message.actorId
+			const edit = new vscode.WorkspaceEdit();
+			edit.replace(
+				sceneUri,
+				new vscode.Range(
+					document.positionAt(0),
+					document.positionAt(originalText.length)
+				),
+				updatedText
 			);
+
+			if (!await vscode.workspace.applyEdit(edit)) {
+				throw new Error('Unable to update the scene document');
+			}
+
+			if (vscode.workspace.getConfiguration('infinite').get('autoSave', true)) {
+				await document.save();
+			}
+
+			this.selectActor(sceneUri, message.actorId);
+			await this.sceneChangeHandler?.({
+				sceneUri,
+				scene,
+				selectedActorId: message.actorId
+			});
 		} catch (error) {
 			console.error('Failed to update actor transform:', error);
 
 			vscode.window.showErrorMessage(
 				`Failed to save actor transform: ${error instanceof Error ? error.message : String(error)
 				}`
+			);
+		}
+	}
+
+	async getSceneSnapshot(sceneUri) {
+		this.assertSceneEditable(sceneUri);
+		const document = await vscode.workspace.openTextDocument(sceneUri);
+		const originalText = document.getText();
+
+		return {
+			document,
+			originalText,
+			scene: IEScene.fromJSON(JSON.parse(originalText))
+		};
+	}
+
+	async commitSceneSnapshot(snapshot, options = {}) {
+		return this.queueSceneEdit(snapshot.document.uri, () =>
+			this.commitSceneSnapshotNow(snapshot, options)
+		);
+	}
+
+	async commitSceneSnapshotNow(snapshot, options = {}) {
+		const { document, scene } = snapshot;
+		let { originalText } = snapshot;
+		const sceneUri = document.uri;
+		this.assertSceneEditable(sceneUri);
+		const currentText = document.getText();
+
+		if (currentText !== originalText) {
+			const originalData = JSON.parse(originalText);
+			const currentData = JSON.parse(currentText);
+			const currentEditorState = currentData.editorState;
+			delete originalData.editorState;
+			delete currentData.editorState;
+
+			if (JSON.stringify(currentData) !== JSON.stringify(originalData)) {
+				throw new Error('The scene changed while applying the edit');
+			}
+
+			// Camera and viewport state is saved asynchronously. It is safe to
+			// rebase a structural edit over that metadata-only change.
+			scene.editorState = currentEditorState
+				? structuredClone(currentEditorState)
+				: undefined;
+			originalText = currentText;
+		}
+
+		const updatedText = `${JSON.stringify(scene.toJSON(), null, 4)}\n`;
+		if (updatedText === originalText) return false;
+
+		const edit = new vscode.WorkspaceEdit();
+		edit.replace(
+			sceneUri,
+			new vscode.Range(
+				document.positionAt(0),
+				document.positionAt(originalText.length)
+			),
+			updatedText
+		);
+
+		if (!await vscode.workspace.applyEdit(edit)) {
+			throw new Error('Unable to update the scene document');
+		}
+
+		if (vscode.workspace.getConfiguration('infinite').get('autoSave', true)) {
+			await document.save();
+		}
+
+		await this.refreshScene(sceneUri);
+
+		const selectedActorId = options.selectedActorId ?? null;
+		if (selectedActorId && scene.getActor(selectedActorId)) {
+			this.selectActor(sceneUri, selectedActorId);
+		} else {
+			this.clearSelection(sceneUri);
+		}
+
+		await this.sceneChangeHandler?.({
+			sceneUri,
+			scene,
+			selection: this.getSelection(sceneUri),
+			selectedActorId
+		});
+
+		return true;
+	}
+
+	async duplicateActorAtTransform(sceneUri, message) {
+		try {
+			const snapshot = await this.getSceneSnapshot(sceneUri);
+			const { scene } = snapshot;
+			const source = scene.getActor(message.actorId);
+			if (!source || source.type === 'World') return;
+
+			for (const property of ['position', 'rotation', 'scale']) {
+				if (!Array.isArray(message[property]) ||
+					message[property].length !== 3 ||
+					!message[property].every(Number.isFinite)) {
+					throw new Error(`Invalid duplicate actor ${property}`);
+				}
+			}
+
+			const data = structuredClone(source.toJSON());
+			data.id = crypto.randomUUID();
+			data.name = `${source.name} Copy`;
+
+			if (Array.isArray(data.components)) {
+				const ids = new Map(data.components.map(component => [
+					component.id,
+					crypto.randomUUID()
+				]));
+				for (const component of data.components) {
+					component.id = ids.get(component.id);
+					if (ids.has(component.parent)) component.parent = ids.get(component.parent);
+				}
+			}
+
+			const duplicate = ActorRegistry.fromJSON(data);
+			if (duplicate.isInstance()) {
+				duplicate.overrides ??= {};
+				duplicate.overrides.transform = {
+					position: [...message.position],
+					rotation: [...message.rotation],
+					scale: [...message.scale]
+				};
+			} else {
+				for (const property of ['position', 'rotation', 'scale']) {
+					duplicate[property]?.setValue?.(message[property]);
+				}
+			}
+
+			scene.addActor(duplicate);
+			await this.commitSceneSnapshot(snapshot, {
+				selectedActorId: duplicate.id
+			});
+		} catch (error) {
+			console.error('Failed to duplicate actor:', error);
+			vscode.window.showErrorMessage(
+				`Failed to duplicate actor: ${error instanceof Error ? error.message : String(error)}`
 			);
 		}
 	}
@@ -453,7 +832,11 @@ class IESceneEditor {
 								graph,
 								assetManager
 							);
-							component.resolvedTerrain = new IETerrainGraphEvaluator(undefined, { maxResolution: 512, textures }).evaluate(graph).terrain;
+							const materials = await resolveTerrainMaterials(
+								graph,
+								assetManager
+							);
+							component.resolvedTerrain = new IETerrainGraphEvaluator(undefined, { maxResolution: 512, textures, materials }).evaluate(graph).terrain;
 							component.terrainRevision = crypto.createHash('sha1').update(JSON.stringify(asset.data ?? asset.graph)).digest('hex');
 						} catch (error) {
 							component.terrainError = error.message;
@@ -652,19 +1035,91 @@ class IESceneEditor {
 		this.printHandler = handler;
 	}
 
+	setRuntimeErrorHandler(handler) {
+		this.runtimeErrorHandler = handler;
+	}
+
+	setPanelDisposeHandler(handler) {
+		this.panelDisposeHandler = handler;
+	}
+
+	setSceneChangeHandler(handler) {
+		this.sceneChangeHandler = handler;
+	}
+
+	async syncSceneAfterHistoryChange(sceneUri) {
+		await this.waitForSceneEdits(sceneUri);
+		const document = await vscode.workspace.openTextDocument(sceneUri);
+		const scene = IEScene.fromJSON(JSON.parse(document.getText()));
+		await this.refreshScene(sceneUri);
+
+		const selection = this.getSelection(sceneUri);
+		const selectedActor = selection?.actorId
+			? scene.getActor(selection.actorId)
+			: null;
+		if (selectedActor) {
+			if (
+				selection.componentId &&
+				!selectedActor.isInstance() &&
+				!selectedActor.getComponentById(selection.componentId)
+			) selection.componentId = null;
+			this.sceneSelections.set(sceneUri.toString(), selection);
+			this.getPanel(sceneUri)?.webview.postMessage({
+				type: 'selectActor',
+				actorId: selection.actorId
+			});
+		} else {
+			this.clearSelection(sceneUri);
+		}
+
+		await this.sceneChangeHandler?.({
+			sceneUri,
+			scene,
+			selection: this.getSelection(sceneUri),
+			selectedActorId: this.getSelection(sceneUri)?.actorId ?? null
+		});
+	}
+
 	async loadScene(sceneUri, webviewPanel) {
+		const key = sceneUri.toString();
+		const version = (this.sceneLoadVersions.get(key) ?? 0) + 1;
+		this.sceneLoadVersions.set(key, version);
 		try {
 			const scene = new IEScene(sceneUri);
 			await scene.load();
+			const editorState = await this.getEditorState(
+				sceneUri,
+				scene.editorState
+			);
 
 			const sceneData = await this.resolveSceneAssets(
 				sceneUri,
 				scene.toJSON()
 			);
+			sceneData.editorState = editorState;
 
-			await webviewPanel.webview.postMessage({
+			const workspace = vscode.workspace.getWorkspaceFolder(sceneUri);
+			const customNodeModules = [];
+			if (workspace && vscode.workspace.isTrusted) {
+				for (const uri of await findCustomNodeFiles(workspace)) {
+					const stat = await vscode.workspace.fs.stat(uri);
+					customNodeModules.push(
+						webviewPanel.webview.asWebviewUri(uri).with({
+							query: `v=${stat.mtime}`
+						}).toString()
+					);
+				}
+			}
+
+			if (
+				this.panels.get(key) !== webviewPanel ||
+				this.sceneLoadVersions.get(key) !== version
+			) return false;
+
+			return await webviewPanel.webview.postMessage({
 				type: 'loadScene',
-				scene: sceneData
+				scene: sceneData,
+				customNodeModules
 			});
 		} catch (error) {
 			const message = error instanceof Error
@@ -680,7 +1135,11 @@ class IESceneEditor {
 
 
 	async refreshScene(sceneUri) {
-		console.log("Scene refresh")
+		const key = sceneUri.toString();
+		if (this.sceneLifecycles.get(key) !== 'editing') {
+			this.pendingPlayRefreshes.add(key);
+			return;
+		}
 		const panel = this.getPanel(
 			sceneUri
 		);
@@ -699,26 +1158,80 @@ class IESceneEditor {
 
 
 	async beginPlay(sceneUri, sceneData) {
+		const key = sceneUri.toString();
 		const panel = this.getPanel(sceneUri);
-		if (!panel) return;
+		if (!panel) {
+			throw new Error('Open the scene editor before entering play mode.');
+		}
+		if (this.sceneLifecycles.get(key) !== 'editing') {
+			throw new Error(`Scene cannot start from ${this.sceneLifecycles.get(key)} state.`);
+		}
+
+		this.sceneLifecycles.set(key, 'starting');
+		this.sceneLoadVersions.set(key, (this.sceneLoadVersions.get(key) ?? 0) + 1);
 
 		try {
+			const runtimeSnapshot = structuredClone(sceneData);
+			IEScene.fromJSON(runtimeSnapshot);
 			const resolvedScene = await this.resolveSceneAssets(
 				sceneUri,
-				structuredClone(sceneData)
+				runtimeSnapshot
 			);
+			if (
+				this.getPanel(sceneUri) !== panel ||
+				this.sceneLifecycles.get(key) !== 'starting'
+			) throw new Error('Scene editor closed while play mode was starting.');
 
-			await panel.webview.postMessage({
-				type: 'beginPlay',
-				scene: resolvedScene
+			const requestId = crypto.randomUUID();
+			const confirmation = new Promise((resolve, reject) => {
+				const timer = setTimeout(() => {
+					this.playStartRequests.delete(requestId);
+					reject(new Error('Scene viewport timed out while starting play mode.'));
+				}, 10000);
+				this.playStartRequests.set(requestId, {
+					sceneKey: key,
+					resolve,
+					reject,
+					timer
+				});
 			});
+			const delivered = await panel.webview.postMessage({
+				type: 'beginPlay',
+				scene: structuredClone(resolvedScene),
+				requestId
+			});
+			if (!delivered) {
+				const request = this.playStartRequests.get(requestId);
+				clearTimeout(request?.timer);
+				this.playStartRequests.delete(requestId);
+				throw new Error('The scene viewport did not accept play mode.');
+			}
+			await confirmation;
+			this.sceneLifecycles.set(key, 'playing');
 		} catch (error) {
-			console.error('Failed to begin play:', error);
+			if (this.sceneLifecycles.get(key) === 'starting') {
+				this.sceneLifecycles.set(key, 'editing');
+			}
+			throw error;
+		}
+	}
+
+	finishPlayStart(message) {
+		const request = this.playStartRequests.get(message.requestId);
+		if (!request) return;
+		clearTimeout(request.timer);
+		this.playStartRequests.delete(message.requestId);
+		if (message.type === 'playStarted') {
+			request.resolve();
+		} else {
+			request.reject(new Error(message.message || 'Scene viewport failed to start.'));
 		}
 	}
 
 
 	async pausePlay(sceneUri) {
+		const key = sceneUri.toString();
+		if (this.sceneLifecycles.get(key) !== 'playing') return;
 		const panel = this.getPanel(
 			sceneUri
 		);
@@ -727,12 +1240,14 @@ class IESceneEditor {
 			return;
 		}
 
-		await panel.webview.postMessage({
+		if (await panel.webview.postMessage({
 			type: 'pausePlay'
-		});
+		})) this.sceneLifecycles.set(key, 'paused');
 	}
 
 	async continuePlay(sceneUri) {
+		const key = sceneUri.toString();
+		if (this.sceneLifecycles.get(key) !== 'paused') return;
 		const panel = this.getPanel(
 			sceneUri
 		);
@@ -741,23 +1256,33 @@ class IESceneEditor {
 			return;
 		}
 
-		await panel.webview.postMessage({
+		if (await panel.webview.postMessage({
 			type: 'continuePlay'
-		});
+		})) this.sceneLifecycles.set(key, 'playing');
 	}
 
 	async stopPlay(sceneUri) {
+		const key = sceneUri.toString();
+		if (!['starting', 'playing', 'paused'].includes(
+			this.sceneLifecycles.get(key)
+		)) return;
+		this.sceneLifecycles.set(key, 'stopping');
 		const panel = this.getPanel(
 			sceneUri
 		);
 
 		if (!panel) {
+			this.sceneLifecycles.delete(key);
 			return;
 		}
 
 		await panel.webview.postMessage({
 			type: 'stopPlay'
 		});
+		this.sceneLifecycles.set(key, 'editing');
+		if (this.pendingPlayRefreshes.delete(key)) {
+			await this.loadScene(sceneUri, panel);
+		}
 	}
 
 	getPanel(sceneUri) {

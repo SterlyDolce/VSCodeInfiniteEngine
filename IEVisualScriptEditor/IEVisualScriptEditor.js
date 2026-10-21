@@ -6,6 +6,10 @@ const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const IEAssetManager = require('../IEAssetManager');
 const IETypeRegistry = require('../Types/IETypeRegistry');
+const {
+    CUSTOM_NODE_GLOB,
+    registerCustomNodes
+} = require('../IECustomNodeLoader');
 
 
 class IEVisualScriptEditor {
@@ -81,6 +85,8 @@ class IEVisualScriptEditor {
                 manager,
                 registry
             );
+
+            await registerCustomNodes(registry, workspace);
 
             return registry;
         };
@@ -171,9 +177,13 @@ class IEVisualScriptEditor {
             'IEVisualScriptEditor'
         );
 
+        const editorWorkspace = vscode.workspace.getWorkspaceFolder(document.uri);
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [folder]
+            localResourceRoots: [
+                folder,
+                ...(editorWorkspace ? [editorWorkspace.uri] : [])
+            ]
         };
 
         IEVisualScriptEditor.panels ??= new Map();
@@ -290,6 +300,7 @@ class IEVisualScriptEditor {
             );
 
         let animationAssetWatcher = null;
+        let customNodeWatcher = null;
         let refreshTimer = null;
 
         if (workspace) {
@@ -302,6 +313,10 @@ class IEVisualScriptEditor {
                 vscode.workspace.createFileSystemWatcher(
                     pattern
                 );
+
+            customNodeWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(workspace, CUSTOM_NODE_GLOB)
+            );
 
             const refresh = () => {
                 clearTimeout(refreshTimer);
@@ -335,6 +350,10 @@ class IEVisualScriptEditor {
                 null,
                 []
             );
+
+            customNodeWatcher.onDidCreate(refresh, null, []);
+            customNodeWatcher.onDidChange(refresh, null, []);
+            customNodeWatcher.onDidDelete(refresh, null, []);
         }
 
 
@@ -347,6 +366,7 @@ class IEVisualScriptEditor {
 
             clearTimeout(refreshTimer);
             animationAssetWatcher?.dispose();
+            customNodeWatcher?.dispose();
 
             this.propertiesProvider?.clearGraphSelection(uriKey);
         });

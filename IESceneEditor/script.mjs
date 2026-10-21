@@ -15,6 +15,7 @@ const postOutlineUpdate = (action, payload = {}) => vscode.postMessage({
 
 import * as THREE from 'three';
 import { InfiniteGridHelper } from './InfiniteGridHelper.mjs';
+import { createTerrainGraphMaterial } from './TerrainMaterial.mjs';
 import { IEScriptRuntime } from './IEScriptRuntime.mjs';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -80,6 +81,14 @@ const viewport = document.getElementById('viewport');
 const previewViewport = document.getElementById('preview-viewport');
 
 const viewGizmoViewport = document.getElementById('view-gizmo');
+const viewportToolbar = document.getElementById('viewport-toolbar');
+const viewportView = document.getElementById('viewport-view');
+const transformSpaceButton = document.getElementById('transform-space');
+const translationSnapButton = document.getElementById('translation-snap');
+const translationSnapValue = document.getElementById('translation-snap-value');
+const rotationSnapButton = document.getElementById('rotation-snap');
+const rotationSnapValue = document.getElementById('rotation-snap-value');
+const cameraSpeed = document.getElementById('camera-speed');
 
 if (!viewport) {
 	throw new Error('Viewport element not found');
@@ -91,6 +100,10 @@ if (!previewViewport) {
 
 if (!viewGizmoViewport) {
 	throw new Error('View gizmo viewport not found');
+}
+
+if (!viewportToolbar) {
+	throw new Error('Viewport toolbar not found');
 }
 
 // Assets
@@ -108,6 +121,27 @@ const viewGizmoModelUri =
 let cameraHelperTemplate;
 
 let viewGizmo;
+const loadedCustomNodeModules = new Set();
+
+async function loadCustomNodeModules(moduleUrls = []) {
+	for (const moduleUrl of moduleUrls) {
+		if (loadedCustomNodeModules.has(moduleUrl)) continue;
+
+		try {
+			const module = await import(moduleUrl);
+			const register = module.registerNodes ?? module.default;
+			if (typeof register !== 'function') {
+				throw new TypeError(
+					'Custom node module must export default or registerNodes()'
+				);
+			}
+			await register(nodeRegistry, { THREE });
+			loadedCustomNodeModules.add(moduleUrl);
+		} catch (error) {
+			console.error(`[IE] Failed to load custom node module ${moduleUrl}:`, error);
+		}
+	}
+}
 
 async function loadEditorAssets() {
 	await loadCameraHelper();
@@ -230,13 +264,26 @@ const editorEnvironment = new IEEnvironmentRenderer(editorScene);
 
 const assetPreviewLights = new THREE.Group();
 
-const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444466, 2);
+const ambientLight = new THREE.HemisphereLight(0xffffff, 0x66708a, 3.5);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 5);
 
 directionalLight.position.set(5, 10, 7);
 
-assetPreviewLights.add(ambientLight, directionalLight);
+const fillLight = new THREE.DirectionalLight(0xdde8ff, 3);
+
+fillLight.position.set(-7, 5, -6);
+
+const rimLight = new THREE.DirectionalLight(0xffffff, 2);
+
+rimLight.position.set(0, 8, -10);
+
+assetPreviewLights.add(
+	ambientLight,
+	directionalLight,
+	fillLight,
+	rimLight
+);
 assetPreviewLights.visible = false;
 
 editorScene.add(assetPreviewLights);
@@ -257,11 +304,49 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.VSMShadowMap;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 viewport.appendChild(renderer.domElement);
+
+// VS Code webviews can invalidate a pointer between pointerdown dispatch and
+// Three.js requesting capture. TransformControls does not guard that browser
+// API call, so make capture best-effort on the shared viewport canvas.
+function makePointerCaptureSafe(element) {
+	const setPointerCapture = element.setPointerCapture?.bind(element);
+	const releasePointerCapture = element.releasePointerCapture?.bind(element);
+
+	if (setPointerCapture) {
+		element.setPointerCapture = (pointerId) => {
+			try {
+				setPointerCapture(pointerId);
+			} catch (error) {
+				if (error?.name !== 'InvalidStateError') {
+					throw error;
+				}
+			}
+		};
+	}
+
+	if (releasePointerCapture) {
+		element.releasePointerCapture = (pointerId) => {
+			try {
+				if (element.hasPointerCapture?.(pointerId) === false) {
+					return;
+				}
+
+				releasePointerCapture(pointerId);
+			} catch (error) {
+				if (error?.name !== 'InvalidStateError' && error?.name !== 'NotFoundError') {
+					throw error;
+				}
+			}
+		};
+	}
+}
+
+makePointerCaptureSafe(renderer.domElement);
 
 // Camera Preview Renderer
 
@@ -363,6 +448,7 @@ composer.addPass(outlinePass);
 // Runtime Script
 
 let scriptRuntimes = [];
+let pendingFootIK = [];
 let editorScriptRuntimes = [];
 let physicsRuntime = null;
 let lastFrameTime = performance.now();
@@ -587,6 +673,12 @@ const engine = {
 
 	isGrounded(actor, tolerance) {
 		return physicsRuntime?.isGrounded(actor, tolerance) ?? false;
+	},
+
+	queueFootIK(constraint) {
+		if (constraint?.actor && constraint?.bone) {
+			pendingFootIK.push(constraint);
+		}
 	},
 
 	print(...values) {
@@ -848,6 +940,25 @@ const engine = {
 	},
 };
 
+let runtimeErrorReported = false;
+
+function reportRuntimeError(error, context = {}) {
+	if (runtimeErrorReported) return;
+	runtimeErrorReported = true;
+	isPaused = true;
+	clearGameplayInput();
+	engine.showMouse();
+
+	const runtimeError = error instanceof Error ? error : new Error(String(error));
+	postSceneUpdate('runtimeError', {
+		error: {
+			message: runtimeError.message,
+			stack: runtimeError.stack,
+			context: runtimeError.ieRuntimeContext ?? context
+		}
+	});
+}
+
 function createScriptRuntimes(sceneData, actorRoot) {
 	const runtimes = [];
 	const objects = new Map();
@@ -877,7 +988,19 @@ function createScriptRuntimes(sceneData, actorRoot) {
 			if (!component.script) continue;
 
 			if (!component.resolvedScript) {
-				console.error('Script asset was not resolved:', component.script);
+				reportRuntimeError(
+					new Error('Script asset could not be resolved.'),
+					{
+						phase: 'VisualScript.initialize',
+						actor: actorData.name,
+						actorId: actorData.id,
+						component: component.name ?? 'Script',
+						componentId: component.id,
+						scriptId: typeof component.script === 'string'
+							? component.script
+							: component.script?.id
+					}
+				);
 				continue;
 			}
 
@@ -886,12 +1009,29 @@ function createScriptRuntimes(sceneData, actorRoot) {
 					component.resolvedScript,
 					actor,
 					engine,
-					{ mouse: gameplayMouse }
+					{
+						mouse: gameplayMouse,
+						diagnostics: {
+							actor: actorData.name,
+							actorId: actorData.id,
+							component: component.name ?? 'Script',
+							componentId: component.id,
+							scriptId: typeof component.script === 'string'
+								? component.script
+								: component.script?.id
+						}
+					}
 				);
 
 				runtimes.push(runtime);
 			} catch (error) {
-				console.error('Script initialization failed:', error);
+				reportRuntimeError(error, {
+					phase: 'VisualScript.initialize',
+					actor: actorData.name,
+					actorId: actorData.id,
+					component: component.name ?? 'Script',
+					componentId: component.id
+				});
 			}
 		}
 	}
@@ -908,7 +1048,9 @@ function initializeScriptRuntimes(sceneData) {
 		try {
 			runtime.begin();
 		} catch (error) {
-			console.error('IEScript On Begin error:', error);
+			reportRuntimeError(error, error.ieRuntimeContext ?? {
+				phase: 'VisualScript.onBegin'
+			});
 		}
 	}
 }
@@ -1014,7 +1156,9 @@ window.addEventListener('keydown', (event) => {
 		try {
 			runtime.keyDown(event.code);
 		} catch (error) {
-			console.error('Keyboard Down error:', error);
+			reportRuntimeError(error, error.ieRuntimeContext ?? {
+				phase: 'VisualScript.keyDown'
+			});
 		}
 	}
 });
@@ -1026,7 +1170,9 @@ window.addEventListener('keyup', (event) => {
 		try {
 			runtime.keyUp(event.code);
 		} catch (error) {
-			console.error('Keyboard Up error:', error);
+			reportRuntimeError(error, error.ieRuntimeContext ?? {
+				phase: 'VisualScript.keyUp'
+			});
 		}
 	}
 });
@@ -1051,6 +1197,182 @@ controls.maxPolarAngle = Math.PI / 2;
 
 controls.target.set(0, 0, 0);
 
+// Reserve the right mouse button for editor-style fly navigation. Orbit and
+// dolly remain available on the other mouse buttons for precise inspection.
+controls.mouseButtons.RIGHT = null;
+
+const flyNavigation = {
+	active: false,
+	keys: new Set(),
+	speed: 8,
+	lookSensitivity: 0.002
+};
+let editorStateSaveTimer = null;
+let restoringEditorState = false;
+
+const flyEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+const flyForward = new THREE.Vector3();
+const flyRight = new THREE.Vector3();
+const flyMovement = new THREE.Vector3();
+const worldUp = new THREE.Vector3(0, 1, 0);
+
+function updateFlyTarget() {
+	activeEditorCamera.getWorldDirection(flyForward);
+	controls.target.copy(activeEditorCamera.position).add(flyForward);
+}
+
+function captureEditorState() {
+	return {
+		camera: {
+			view: editorCameraViewName(activeEditorCamera),
+			position: activeEditorCamera.position.toArray(),
+			quaternion: activeEditorCamera.quaternion.toArray(),
+			target: controls.target.toArray(),
+			flySpeed: flyNavigation.speed
+		},
+		transform: {
+			mode: transformControls.mode,
+			space: transformControls.space,
+			translationSnap: transformControls.translationSnap,
+			rotationSnap: transformControls.rotationSnap === null
+				? null
+				: THREE.MathUtils.radToDeg(transformControls.rotationSnap)
+		}
+	};
+}
+
+function scheduleEditorStateSave() {
+	if (editorMode !== 'scene' || isPlaying || restoringEditorState) return;
+	clearTimeout(editorStateSaveTimer);
+	editorStateSaveTimer = setTimeout(() => {
+		postSceneUpdate('saveEditorState', { state: captureEditorState() });
+	}, 250);
+}
+
+function beginFlyNavigation(event) {
+	if (
+		event.button !== 2 ||
+		isPlaying ||
+		isTransformDragging ||
+		!controls.enabled
+	) return;
+
+	event.preventDefault();
+	// TransformControls listens on the same canvas and attempts pointer capture
+	// before it checks which mouse button was pressed. Keep RMB fly input away
+	// from that handler so the two controls cannot compete for capture.
+	event.stopImmediatePropagation();
+	if (activeEditorCamera !== editorCamera) {
+		switchBackToPerspective();
+	}
+	flyNavigation.active = true;
+	flyNavigation.keys.clear();
+	flyEuler.setFromQuaternion(activeEditorCamera.quaternion);
+	renderer.domElement.style.cursor = 'grabbing';
+}
+
+function endFlyNavigation(event) {
+	if (!flyNavigation.active || (event.button !== undefined && event.button !== 2)) {
+		return;
+	}
+
+	flyNavigation.active = false;
+	flyNavigation.keys.clear();
+	renderer.domElement.style.cursor = '';
+	updateFlyTarget();
+	scheduleEditorStateSave();
+}
+
+renderer.domElement.addEventListener('contextmenu', event => {
+	if (!isPlaying) event.preventDefault();
+});
+
+renderer.domElement.addEventListener('pointerdown', beginFlyNavigation, true);
+window.addEventListener('pointerup', endFlyNavigation);
+
+window.addEventListener('pointermove', event => {
+	if (!flyNavigation.active) return;
+
+	flyEuler.y -= event.movementX * flyNavigation.lookSensitivity;
+	flyEuler.x -= event.movementY * flyNavigation.lookSensitivity;
+	flyEuler.x = THREE.MathUtils.clamp(
+		flyEuler.x,
+		-Math.PI / 2 + 0.01,
+		Math.PI / 2 - 0.01
+	);
+	activeEditorCamera.quaternion.setFromEuler(flyEuler);
+	updateFlyTarget();
+});
+
+renderer.domElement.addEventListener('wheel', event => {
+	if (!flyNavigation.active) return;
+
+	event.preventDefault();
+	const factor = Math.exp(-Math.sign(event.deltaY) * 0.18);
+	flyNavigation.speed = THREE.MathUtils.clamp(
+		flyNavigation.speed * factor,
+		0.25,
+		250
+	);
+	if (cameraSpeed) {
+		const options = [...cameraSpeed.options];
+		const nearest = options.reduce((best, option) =>
+			Math.abs(Number(option.value) - flyNavigation.speed) <
+			Math.abs(Number(best.value) - flyNavigation.speed)
+				? option
+				: best
+		);
+		cameraSpeed.value = nearest.value;
+		cameraSpeed.title = `Fly camera speed: ${flyNavigation.speed.toFixed(1)}`;
+	}
+	scheduleEditorStateSave();
+}, { passive: false });
+
+window.addEventListener('keydown', event => {
+	if (!flyNavigation.active) return;
+
+	if ([
+		'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+		'ShiftLeft', 'ShiftRight'
+	].includes(event.code)) {
+		event.preventDefault();
+		flyNavigation.keys.add(event.code);
+	}
+});
+
+window.addEventListener('keyup', event => {
+	flyNavigation.keys.delete(event.code);
+});
+
+window.addEventListener('blur', () => {
+	if (flyNavigation.active) endFlyNavigation({ button: 2 });
+});
+
+function updateFlyNavigation(deltaTime) {
+	if (!flyNavigation.active || !controls.enabled || isPlaying) return;
+
+	activeEditorCamera.getWorldDirection(flyForward).normalize();
+	flyRight.crossVectors(flyForward, worldUp).normalize();
+	flyMovement.set(0, 0, 0);
+
+	if (flyNavigation.keys.has('KeyW')) flyMovement.add(flyForward);
+	if (flyNavigation.keys.has('KeyS')) flyMovement.sub(flyForward);
+	if (flyNavigation.keys.has('KeyD')) flyMovement.add(flyRight);
+	if (flyNavigation.keys.has('KeyA')) flyMovement.sub(flyRight);
+	if (flyNavigation.keys.has('KeyE')) flyMovement.add(worldUp);
+	if (flyNavigation.keys.has('KeyQ')) flyMovement.sub(worldUp);
+
+	if (flyMovement.lengthSq() > 0) {
+		const boost = flyNavigation.keys.has('ShiftLeft') ||
+			flyNavigation.keys.has('ShiftRight') ? 4 : 1;
+		flyMovement.normalize().multiplyScalar(
+			flyNavigation.speed * boost * deltaTime
+		);
+		activeEditorCamera.position.add(flyMovement);
+		updateFlyTarget();
+	}
+}
+
 controls.addEventListener('start', () => {
 	if (activeEditorCamera === editorCamera) {
 		return;
@@ -1058,6 +1380,8 @@ controls.addEventListener('start', () => {
 
 	switchBackToPerspective();
 });
+
+controls.addEventListener('change', scheduleEditorStateSave);
 
 function switchBackToPerspective() {
 	const target = controls.target.clone();
@@ -1126,6 +1450,14 @@ let isTransformDragging = false;
 
 let didTransformDrag = false;
 
+let shiftAtTransformPointerDown = false;
+
+let duplicateTransformDrag = null;
+
+renderer.domElement.addEventListener('pointerdown', (event) => {
+	shiftAtTransformPointerDown = event.shiftKey;
+}, true);
+
 transformControls.addEventListener(
 	'dragging-changed',
 
@@ -1135,12 +1467,57 @@ transformControls.addEventListener(
 		if (event.value) {
 			didTransformDrag = true;
 
+			if (
+				shiftAtTransformPointerDown &&
+				selectedActorObject &&
+				selectedActorObject.userData.actorType !== 'World'
+			) {
+				const target = transformControls.object;
+				duplicateTransformDrag = target ? {
+					target,
+					position: target.position.clone(),
+					quaternion: target.quaternion.clone(),
+					scale: target.scale.clone()
+				} : null;
+			}
+
 			controls.enabled = false;
 
 			return;
 		}
 
 		controls.enabled = !isPlaying;
+
+		if (duplicateTransformDrag) {
+			const { target, position, quaternion, scale } = duplicateTransformDrag;
+			const duplicatedTransform = {
+				position: target.position.toArray(),
+				rotation: [target.rotation.x, target.rotation.y, target.rotation.z],
+				scale: target.scale.toArray()
+			};
+			target.position.copy(position);
+			target.quaternion.copy(quaternion);
+			target.scale.copy(scale);
+			target.updateMatrixWorld(true);
+
+			if (editorMode === 'actor' && selectedActorObject.userData.componentId) {
+				postSceneUpdate('duplicateComponentTransform', {
+					componentId: selectedActorObject.userData.componentId,
+					...duplicatedTransform
+				});
+			} else if (selectedActorId) {
+				postSceneUpdate('duplicateActorTransform', {
+					actorId: selectedActorId,
+					...duplicatedTransform
+				});
+			}
+
+			duplicateTransformDrag = null;
+			shiftAtTransformPointerDown = false;
+			return;
+		}
+
+		shiftAtTransformPointerDown = false;
 
 		if (selectedActorObject) {
 			saveSelectedActorTransform(selectedActorObject);
@@ -1210,11 +1587,12 @@ let viewGizmoPointerDownY = 0;
 
 // Messages
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', async (event) => {
 	const message = event.data;
 
 	switch (message.type) {
 		case 'loadScene':
+			await loadCustomNodeModules(message.customNodeModules);
 			loadEditorScene(message.scene);
 			break;
 
@@ -1247,7 +1625,20 @@ window.addEventListener('message', (event) => {
 
 		//PLAY AN PAUSE
 		case 'beginPlay':
-			beginPlay(message.scene);
+			try {
+				await beginPlay(message.scene);
+				vscode.postMessage({
+					type: 'playStarted',
+					requestId: message.requestId
+				});
+			} catch (error) {
+				reportRuntimeError(error, { phase: 'Scene.beginPlay' });
+				vscode.postMessage({
+					type: 'playStartFailed',
+					requestId: message.requestId,
+					message: error instanceof Error ? error.message : String(error)
+				});
+			}
 			break;
 
 		case 'pausePlay':
@@ -1266,6 +1657,10 @@ window.addEventListener('message', (event) => {
 
 
 function selectActorById(actorId) {
+	if (!actorId) {
+		clearSelection();
+		return;
+	}
 	let actor;
 
 	editorActorRoot.traverse((object) => {
@@ -1384,7 +1779,12 @@ function synchronizeComponent(actor, data) {
 	if (object.isLight) {
 		object.color.set(data.color ?? '#ffffff');
 		object.intensity = data.intensity ?? 1;
-		object.castShadow = data.castShadow ?? false;
+		configureLightShadow(object, data);
+	}
+
+	if (object.isMesh && ['mesh', 'terrain'].includes(data.type)) {
+		object.castShadow = data.castShadow ?? data.type === 'mesh';
+		object.receiveShadow = data.receiveShadow ?? true;
 	}
 
 	if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) {
@@ -1477,10 +1877,38 @@ function createTerrainMesh(data) {
 	geometry.setIndex(new THREE.BufferAttribute(source.indices, 1));
 	if (!source.normals) geometry.computeVertexNormals();
 	geometry.computeBoundingSphere();
-	const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x678d58, roughness: .9 }));
-	mesh.receiveShadow = true;
+	const mesh = new THREE.Mesh(
+		geometry,
+		createTerrainGraphMaterial(
+			data.resolvedTerrain?.material,
+			source,
+			false,
+			createTerrainFallbackMaterial
+		)
+	);
+	mesh.castShadow = data.castShadow ?? false;
+	mesh.receiveShadow = data.receiveShadow ?? true;
 	mesh.userData.terrainData = source;
 	return mesh;
+}
+
+function createTerrainFallbackMaterial(source, wireframe = false) {
+	const checker = textureLoader.load(window.INFINITE_ASSETS.checkerTexture);
+	checker.colorSpace = THREE.SRGBColorSpace;
+	checker.wrapS = THREE.RepeatWrapping;
+	checker.wrapT = THREE.RepeatWrapping;
+	checker.userData.terrainFallback = true;
+	checker.repeat.set(
+		Math.max(1, (source.width ?? 100) / 6.4),
+		Math.max(1, (source.depth ?? 100) / 6.4)
+	);
+	checker.needsUpdate = true;
+
+	return new THREE.MeshStandardMaterial({
+		map: checker,
+		roughness: 0.9,
+		wireframe
+	});
 }
 
 function updateSpringArms(root, deltaTime = 1 / 60) {
@@ -1763,6 +2191,80 @@ function buildActorHierarchy(sceneData, root, withHelpers = false) {
 	}
 }
 
+function restoreEditorState(state) {
+	if (!state?.camera) return;
+	restoringEditorState = true;
+
+	try {
+		const views = {
+			perspective: switchBackToPerspective,
+			top: switchToTopView,
+			bottom: switchToBottomView,
+			front: switchToFrontView,
+			back: switchToBackView,
+			left: switchToLeftView,
+			right: switchToRightView
+		};
+		(views[state.camera.view] ?? views.perspective)();
+
+		if (state.camera.position?.length === 3) {
+			activeEditorCamera.position.fromArray(state.camera.position);
+		}
+		if (state.camera.quaternion?.length === 4) {
+			activeEditorCamera.quaternion.fromArray(state.camera.quaternion);
+		}
+		if (state.camera.target?.length === 3) {
+			controls.target.fromArray(state.camera.target);
+		}
+		if (Number.isFinite(state.camera.flySpeed)) {
+			flyNavigation.speed = THREE.MathUtils.clamp(
+				state.camera.flySpeed,
+				0.25,
+				250
+			);
+			if (cameraSpeed) {
+				const matching = [...cameraSpeed.options].find(option =>
+					Number(option.value) === flyNavigation.speed
+				);
+				if (matching) cameraSpeed.value = matching.value;
+			}
+		}
+
+		const transform = state.transform ?? {};
+		if (['translate', 'rotate', 'scale'].includes(transform.mode)) {
+			setTransformMode(transform.mode);
+		}
+		if (['world', 'local'].includes(transform.space)) {
+			transformControls.setSpace(transform.space);
+			transformSpaceButton.textContent = transform.space === 'world'
+				? 'World'
+				: 'Local';
+			transformSpaceButton.classList.toggle(
+				'active',
+				transform.space === 'local'
+			);
+		}
+
+		const translationSnap = Number(transform.translationSnap);
+		const hasTranslationSnap = Number.isFinite(translationSnap) &&
+			translationSnap > 0;
+		translationSnapButton.classList.toggle('active', hasTranslationSnap);
+		if (hasTranslationSnap) translationSnapValue.value = String(translationSnap);
+		updateTranslationSnap();
+
+		const rotationSnap = Number(transform.rotationSnap);
+		const hasRotationSnap = Number.isFinite(rotationSnap) && rotationSnap > 0;
+		rotationSnapButton.classList.toggle('active', hasRotationSnap);
+		if (hasRotationSnap) rotationSnapValue.value = String(rotationSnap);
+		updateRotationSnap();
+
+		activeEditorCamera.updateProjectionMatrix();
+		controls.update();
+	} finally {
+		restoringEditorState = false;
+	}
+}
+
 function loadEditorScene(sceneData) {
 	clearSelection();
 	for (const runtime of editorScriptRuntimes) runtime.stop();
@@ -1786,6 +2288,8 @@ function loadEditorScene(sceneData) {
 
 	// Apply sky, sun, ambient light and fog.
 	editorEnvironment.setEnvironment(environment ?? null);
+
+	if (editorMode === 'scene') restoreEditorState(sceneData.editorState);
 }
 
 function selectActor(actor, notifyExtension = true) {
@@ -1955,7 +2459,7 @@ function safeScale(
 // Main Viewport Selection
 
 renderer.domElement.addEventListener('pointerdown', (event) => {
-	if (isPlaying || isTransformDragging) {
+	if (event.button !== 0 || isPlaying || isTransformDragging) {
 		return;
 	}
 
@@ -1965,7 +2469,7 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
 });
 
 renderer.domElement.addEventListener('pointerup', (event) => {
-	if (isPlaying) {
+	if (event.button !== 0 || isPlaying) {
 		return;
 	}
 
@@ -2280,6 +2784,16 @@ function switchToBackView() {
 	setActiveEditorCamera(backCamera);
 }
 
+function editorCameraViewName(camera) {
+	if (camera === topCamera) return 'top';
+	if (camera === bottomCamera) return 'bottom';
+	if (camera === leftCamera) return 'left';
+	if (camera === rightCamera) return 'right';
+	if (camera === frontCamera) return 'front';
+	if (camera === backCamera) return 'back';
+	return 'perspective';
+}
+
 function setActiveEditorCamera(camera) {
 
 	activeEditorCamera = camera;
@@ -2296,7 +2810,10 @@ function setActiveEditorCamera(camera) {
 
 	camera.layers.enable(EDITOR_LAYER);
 
+	if (viewportView) viewportView.value = editorCameraViewName(camera);
+
 	resize();
+	scheduleEditorStateSave();
 }
 
 // View Gizmo Orientation
@@ -2312,8 +2829,11 @@ function updateViewGizmo() {
 // Play Mode
 
 async function beginPlay(sceneData) {
+	disposeGameplayRuntime();
+	runtimeErrorReported = false;
 	transformControls.detach();
 	transformHelper.visible = false;
+	try {
 	disposeAnimationStates();
 
 	for (const [root, listener] of animationEndListeners) {
@@ -2339,14 +2859,8 @@ async function beginPlay(sceneData) {
 
 	physicsRuntime?.dispose();
 	physicsRuntime = new IEPhysicsRuntime(gameplayActorRoot);
-	try {
-		await physicsRuntime.initialize();
-		console.log('[IE Physics] Rapier world initialized');
-	} catch (error) {
-		console.error('[IE Physics] Initialization failed:', error);
-		physicsRuntime?.dispose();
-		physicsRuntime = null;
-	}
+	await physicsRuntime.initialize();
+	console.log('[IE Physics] Rapier world initialized');
 
 	const environment = sceneData.actors?.find((actor) => actor.type === 'Environment');
 
@@ -2378,6 +2892,10 @@ async function beginPlay(sceneData) {
 	resize();
 
 	initializeScriptRuntimes(sceneData);
+	} catch (error) {
+		disposeGameplayRuntime();
+		throw error;
+	}
 }
 
 function pausePlay() {
@@ -2399,9 +2917,10 @@ function continuePlay() {
 }
 
 function stopPlay() {
-	if (!isPlaying) {
-		return;
-	}
+	disposeGameplayRuntime();
+}
+
+function disposeGameplayRuntime() {
 
 	disposeAnimationStates();
 
@@ -2443,6 +2962,7 @@ function stopPlay() {
 	isPlaying = false;
 
 	isPaused = false;
+	runtimeErrorReported = false;
 
 
 	viewGizmoViewport.style.display = '';
@@ -2643,6 +3163,28 @@ function createLightComponent(component) {
 	}
 }
 
+function configureLightShadow(light, component) {
+	light.castShadow = component.castShadow ?? false;
+	if (!light.shadow) return light;
+
+	const shadowMapSize = light.isDirectionalLight ? 4096 : 2048;
+	light.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+	light.shadow.bias = -0.0002;
+	light.shadow.normalBias = 0.02;
+	light.shadow.radius = 2;
+
+	if (light.shadow.camera) {
+		light.shadow.camera.near = 0.1;
+		const distance = Number(component.distance);
+		light.shadow.camera.far = Number.isFinite(distance) && distance > 0
+			? Math.max(10, distance)
+			: 500;
+		light.shadow.camera.updateProjectionMatrix();
+	}
+
+	return light;
+}
+
 function createPointLightActor(component) {
 	const light = new THREE.PointLight(
 		component.color ?? '#ffffff',
@@ -2651,7 +3193,7 @@ function createPointLightActor(component) {
 		component.decay ?? 2
 	);
 
-	light.castShadow = component.castShadow ?? false;
+	configureLightShadow(light, component);
 	light.layers.set(WORLD_LAYER);
 
 	return light;
@@ -2660,7 +3202,7 @@ function createPointLightActor(component) {
 function createDirectionalLightActor(component) {
 	const light = new THREE.DirectionalLight(component.color ?? '#ffffff', component.intensity ?? 1);
 
-	light.castShadow = component.castShadow ?? false;
+	configureLightShadow(light, component);
 
 	light.shadow.mapSize.set(4096, 4096);
 
@@ -2676,8 +3218,7 @@ function createDirectionalLightActor(component) {
 	light.shadow.normalBias = 0.02;
 	light.shadow.radius = 2;
 
-	light.shadow.radius = 25;
-	light.shadow.blurSamples = 25;
+	light.shadow.radius = 2;
 
 	light.shadow.camera.updateProjectionMatrix();
 	light.layers.set(WORLD_LAYER);
@@ -2698,7 +3239,7 @@ function createSpotLightActor(component) {
 		component.decay ?? 2
 	);
 
-	light.castShadow = component.castShadow ?? false;
+	configureLightShadow(light, component);
 	light.layers.set(WORLD_LAYER);
 
 	light.target.position.set(0, 0, -1);
@@ -2951,8 +3492,8 @@ function createMeshActor(component, skeletonCache = null) {
 		mesh = new THREE.Mesh(geometry, material);
 	}
 
-	mesh.castShadow = true;
-	mesh.receiveShadow = true;
+	mesh.castShadow = component.castShadow ?? true;
+	mesh.receiveShadow = component.receiveShadow ?? true;
 
 	mesh.layers.set(WORLD_LAYER);
 	mesh.visible = component.enabled ?? true;
@@ -3206,9 +3747,11 @@ function disposeObject(object) {
 
 		if (Array.isArray(child.material)) {
 			for (const material of child.material) {
+				if (material.map?.userData.terrainFallback) material.map.dispose();
 				material.dispose();
 			}
 		} else {
+			if (child.material?.map?.userData.terrainFallback) child.material.map.dispose();
 			child.material?.dispose();
 		}
 	});
@@ -3330,8 +3873,82 @@ function updateCameraAspect(camera, width, height) {
 
 // Keyboard Shortcuts
 
+function setTransformMode(mode) {
+	transformControls.setMode(mode);
+	for (const button of viewportToolbar.querySelectorAll('.transform-mode')) {
+		button.classList.toggle('active', button.dataset.mode === mode);
+	}
+	scheduleEditorStateSave();
+}
+
+viewportToolbar.addEventListener('pointerdown', event => {
+	event.stopPropagation();
+});
+
+viewportView?.addEventListener('change', () => {
+	const views = {
+		perspective: switchBackToPerspective,
+		top: switchToTopView,
+		bottom: switchToBottomView,
+		front: switchToFrontView,
+		back: switchToBackView,
+		left: switchToLeftView,
+		right: switchToRightView
+	};
+	views[viewportView.value]?.();
+	scheduleEditorStateSave();
+});
+
+for (const button of viewportToolbar.querySelectorAll('.transform-mode')) {
+	button.addEventListener('click', () => setTransformMode(button.dataset.mode));
+}
+
+transformSpaceButton?.addEventListener('click', () => {
+	const space = transformControls.space === 'world' ? 'local' : 'world';
+	transformControls.setSpace(space);
+	transformSpaceButton.textContent = space === 'world' ? 'World' : 'Local';
+	transformSpaceButton.classList.toggle('active', space === 'local');
+	scheduleEditorStateSave();
+});
+
+function updateTranslationSnap() {
+	const enabled = translationSnapButton.classList.contains('active');
+	transformControls.setTranslationSnap(
+		enabled ? Number(translationSnapValue.value) : null
+	);
+	scheduleEditorStateSave();
+}
+
+translationSnapButton?.addEventListener('click', () => {
+	translationSnapButton.classList.toggle('active');
+	updateTranslationSnap();
+});
+
+translationSnapValue?.addEventListener('change', updateTranslationSnap);
+
+function updateRotationSnap() {
+	const enabled = rotationSnapButton.classList.contains('active');
+	transformControls.setRotationSnap(
+		enabled ? THREE.MathUtils.degToRad(Number(rotationSnapValue.value)) : null
+	);
+	scheduleEditorStateSave();
+}
+
+rotationSnapButton?.addEventListener('click', () => {
+	rotationSnapButton.classList.toggle('active');
+	updateRotationSnap();
+});
+
+rotationSnapValue?.addEventListener('change', updateRotationSnap);
+
+cameraSpeed?.addEventListener('change', () => {
+	flyNavigation.speed = Number(cameraSpeed.value);
+	cameraSpeed.title = `Fly camera speed: ${flyNavigation.speed}`;
+	scheduleEditorStateSave();
+});
+
 window.addEventListener('keydown', (event) => {
-	if (isPlaying || !selectedActorObject) {
+	if (isPlaying || flyNavigation.active || !selectedActorObject) {
 		return;
 	}
 
@@ -3344,18 +3961,184 @@ window.addEventListener('keydown', (event) => {
 
 	switch (event.key.toLowerCase()) {
 		case 'w':
-			transformControls.setMode('translate');
+			setTransformMode('translate');
 			break;
 
 		case 'e':
-			transformControls.setMode('rotate');
+			setTransformMode('rotate');
 			break;
 
 		case 'r':
-			transformControls.setMode('scale');
+			setTransformMode('scale');
 			break;
 	}
 });
+
+function applyFootIK(deltaTime) {
+	for (const constraint of pendingFootIK) {
+		const { actor, bone, state } = constraint;
+		const lowerLeg = bone?.parent;
+		const upperLeg = lowerLeg?.parent;
+		if (
+			!actor?.isObject3D ||
+			!bone?.isBone ||
+			!lowerLeg?.isBone ||
+			!upperLeg?.isBone
+		) continue;
+
+		actor.updateWorldMatrix(true, true);
+		const animatedPosition = bone.getWorldPosition(new THREE.Vector3());
+		const animatedRotation = bone.getWorldQuaternion(new THREE.Quaternion());
+		const origin = animatedPosition.clone();
+		origin.y += constraint.traceHeight;
+		const contact = physicsRuntime?.getGroundContact(
+			actor,
+			origin,
+			constraint.traceHeight + constraint.traceDistance
+		);
+
+		state.isGrounded = Boolean(contact);
+		if (!contact) {
+			state.position = null;
+			state.normal.set(0, 1, 0);
+			continue;
+		}
+
+		const targetPosition = new THREE.Vector3(
+			contact.point.x,
+			contact.point.y,
+			contact.point.z
+		);
+		const targetNormal = new THREE.Vector3(
+			contact.normal.x,
+			contact.normal.y,
+			contact.normal.z
+		).normalize();
+		targetPosition.addScaledVector(targetNormal, constraint.footOffset);
+
+		const response = constraint.smoothing > 0
+			? 1 - Math.exp(-constraint.smoothing * deltaTime)
+			: 1;
+		state.position ??= animatedPosition.clone();
+		state.position.lerp(targetPosition, response);
+		state.normal.lerp(targetNormal, response).normalize();
+
+		// Reach the contact by rotating the upper and lower leg. Translating the
+		// foot bone itself breaks the skeleton chain and visibly detaches the foot.
+		const hipPosition = upperLeg.getWorldPosition(new THREE.Vector3());
+		const kneePosition = lowerLeg.getWorldPosition(new THREE.Vector3());
+		const anklePosition = animatedPosition.clone();
+		const upperLength = hipPosition.distanceTo(kneePosition);
+		const lowerLength = kneePosition.distanceTo(anklePosition);
+		if (upperLength < 1e-5 || lowerLength < 1e-5) continue;
+
+		const positionWeight = THREE.MathUtils.clamp(
+			constraint.positionWeight,
+			0,
+			1
+		);
+		const requestedAnkle = anklePosition.clone().lerp(
+			state.position,
+			positionWeight
+		);
+		const hipToTarget = requestedAnkle.clone().sub(hipPosition);
+		const requestedDistance = hipToTarget.length();
+		if (requestedDistance < 1e-5) continue;
+
+		const targetDirection = hipToTarget.multiplyScalar(1 / requestedDistance);
+		const minimumReach = Math.abs(upperLength - lowerLength) + 1e-4;
+		const maximumReach = upperLength + lowerLength - 1e-4;
+		const reach = THREE.MathUtils.clamp(
+			requestedDistance,
+			minimumReach,
+			maximumReach
+		);
+		const solvedAnkle = hipPosition.clone().addScaledVector(
+			targetDirection,
+			reach
+		);
+
+		// Keep the knee on the animation's current bend side so the leg cannot
+		// suddenly flip when the target crosses the chain's straight line.
+		const hipToKnee = kneePosition.clone().sub(hipPosition);
+		const bendDirection = hipToKnee.clone().addScaledVector(
+			targetDirection,
+			-hipToKnee.dot(targetDirection)
+		);
+		if (bendDirection.lengthSq() < 1e-8) {
+			const fallbackAxis = Math.abs(targetDirection.y) < 0.9
+				? new THREE.Vector3(0, 1, 0)
+				: new THREE.Vector3(1, 0, 0);
+			bendDirection.crossVectors(targetDirection, fallbackAxis);
+		}
+		bendDirection.normalize();
+
+		const kneeAlong = (
+			reach * reach +
+			upperLength * upperLength -
+			lowerLength * lowerLength
+		) / (2 * reach);
+		const kneeAway = Math.sqrt(Math.max(
+			0,
+			upperLength * upperLength - kneeAlong * kneeAlong
+		));
+		const solvedKnee = hipPosition.clone()
+			.addScaledVector(targetDirection, kneeAlong)
+			.addScaledVector(bendDirection, kneeAway);
+
+		const rotateBoneToward = (joint, from, to) => {
+			const currentDirection = from.clone().normalize();
+			const desiredDirection = to.clone().normalize();
+			const worldRotation = joint.getWorldQuaternion(new THREE.Quaternion());
+			const rotationDelta = new THREE.Quaternion().setFromUnitVectors(
+				currentDirection,
+				desiredDirection
+			);
+			const desiredWorldRotation = rotationDelta.multiply(worldRotation);
+			const parentWorldRotation = joint.parent.getWorldQuaternion(
+				new THREE.Quaternion()
+			);
+			joint.quaternion.copy(
+				parentWorldRotation.invert().multiply(desiredWorldRotation)
+			);
+			joint.updateWorldMatrix(false, true);
+		};
+
+		rotateBoneToward(
+			upperLeg,
+			kneePosition.clone().sub(hipPosition),
+			solvedKnee.clone().sub(hipPosition)
+		);
+		const rotatedKnee = lowerLeg.getWorldPosition(new THREE.Vector3());
+		const rotatedAnkle = bone.getWorldPosition(new THREE.Vector3());
+		rotateBoneToward(
+			lowerLeg,
+			rotatedAnkle.sub(rotatedKnee),
+			solvedAnkle.sub(rotatedKnee)
+		);
+
+		bone.parent.updateWorldMatrix(true, false);
+		// Apply only the terrain slope delta to the animated pose. Skeletons
+		// such as Mixamo do not use a foot bone's local Y axis as the sole
+		// normal, so aligning that local axis directly causes severe twisting.
+		const alignment = new THREE.Quaternion().setFromUnitVectors(
+			new THREE.Vector3(0, 1, 0),
+			state.normal
+		);
+		const targetWorldRotation = alignment.multiply(animatedRotation);
+		const parentWorldRotation = bone.parent.getWorldQuaternion(
+			new THREE.Quaternion()
+		);
+		const targetLocalRotation = parentWorldRotation
+			.invert()
+			.multiply(targetWorldRotation);
+		bone.quaternion.slerp(
+			targetLocalRotation,
+			THREE.MathUtils.clamp(constraint.rotationWeight, 0, 1)
+		);
+		bone.updateWorldMatrix(false, true);
+	}
+}
 
 // Render Loop
 
@@ -3376,13 +4159,17 @@ function animate() {
 	}
 
 	if (isPlaying && !isPaused) {
+		pendingFootIK = [];
 		// Execute visual script graphs first.
 		// They may update Animation State parameters.
 		for (const runtime of scriptRuntimes) {
 			try {
 				runtime.update(deltaTime);
 			} catch (error) {
-				console.error('[IE] Script runtime error:', error);
+				reportRuntimeError(error, error.ieRuntimeContext ?? {
+					phase: 'VisualScript.update'
+				});
+				break;
 			}
 		}
 
@@ -3390,7 +4177,11 @@ function animate() {
 		gameplayMouse.delta[1] = 0;
 		gameplayMouse.wheel = 0;
 
-		physicsRuntime?.update(deltaTime);
+		try {
+			physicsRuntime?.update(deltaTime);
+		} catch (error) {
+			reportRuntimeError(error, { phase: 'Physics.update' });
+		}
 
 		// Ordinary animation.play nodes.
 		for (const mixer of animationMixers.values()) {
@@ -3402,12 +4193,20 @@ function animate() {
 			try {
 				entry.runtime.update(deltaTime);
 			} catch (error) {
-				console.error('[IE] Animation State runtime error:', error);
+				reportRuntimeError(error, {
+					phase: 'AnimationState.update',
+					actor: entry.actor?.name,
+					actorId: entry.actor?.userData?.actorId
+				});
+				break;
 			}
 		}
+
+		applyFootIK(deltaTime);
 	}
 
 	if (!isPlaying && controls.enabled) {
+		updateFlyNavigation(deltaTime);
 		controls.update();
 	}
 

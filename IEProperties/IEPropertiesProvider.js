@@ -21,6 +21,7 @@ class IEPropertiesProvider {
 
 		this.view = undefined;
 		this.actor = undefined;
+		this.selectedSceneComponentId = null;
 		this.graphSelection = null;
 		this.animationStateSelection = null;
 		this.skeletonSelection = null;
@@ -123,6 +124,17 @@ class IEPropertiesProvider {
 						await this.selectActorAssetComponent(
 							message.componentId
 						);
+						break;
+
+					case 'selectSceneComponent':
+						if (this.activeEditor?.type === 'scene' && this.actor) {
+							this.selectedSceneComponentId = message.componentId ?? null;
+							this.sceneEditor.selectComponent(
+								vscode.Uri.parse(this.activeEditor.uri),
+								this.actor.id,
+								this.selectedSceneComponentId
+							);
+						}
 						break;
 
 					case 'resolveComponentAssets':
@@ -1035,15 +1047,17 @@ class IEPropertiesProvider {
 
 
 
-	setActor(actor) {
+	setActor(actor, componentId = null) {
 		console.log('[Inspector] Selected actor:', actor?.name, actor?.id);
 		this.actor = actor;
+		this.selectedSceneComponentId = componentId;
 		this.update();
 	}
 
 	clear() {
 		this.actor =
 			undefined;
+		this.selectedSceneComponentId = null;
 
 		this.update();
 	}
@@ -1312,7 +1326,8 @@ class IEPropertiesProvider {
 			actor: actor?.toResolvedJSON() ?? null,
 			schema: actor?.getProperties() ?? {},
 			componentSchemas,
-			assets
+			assets,
+			selectedComponentId: this.selectedSceneComponentId
 		});
 	}
 

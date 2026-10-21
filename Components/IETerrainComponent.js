@@ -10,8 +10,10 @@ class IETerrainComponent extends IEComponent {
         this.physics = new IEBool(true);
         this.friction = new IENumber(0.8);
         this.restitution = new IENumber(0);
+        this.castShadow = new IEBool(false);
+        this.receiveShadow = new IEBool(true);
     }
-    toJSON() { return { ...super.toJSON(), terrain: this.terrain.getValue(), physics: this.physics.getValue(), friction: this.friction.getValue(), restitution: this.restitution.getValue() }; }
-    static fromJSON(data) { const component = new this(); component.id=data.id??component.id; component.name=data.name??component.name; component.enabled=data.enabled??true; component.parent=data.parent??null; component.terrain.setValue(data.terrain??null); component.physics.setValue(data.physics??true); component.friction.setValue(data.friction??.8); component.restitution.setValue(data.restitution??0); return component; }
+    toJSON() { return { ...super.toJSON(), terrain: this.terrain.getValue(), physics: this.physics.getValue(), friction: this.friction.getValue(), restitution: this.restitution.getValue(), castShadow: this.castShadow.getValue(), receiveShadow: this.receiveShadow.getValue() }; }
+    static fromJSON(data) { const component = new this(); component.id=data.id??component.id; component.name=data.name??component.name; component.enabled=data.enabled??true; component.parent=data.parent??null; component.terrain.setValue(data.terrain??null); component.physics.setValue(data.physics??true); component.friction.setValue(data.friction??.8); component.restitution.setValue(data.restitution??0); component.castShadow.setValue(data.castShadow??false); component.receiveShadow.setValue(data.receiveShadow??true); return component; }
 }
 module.exports = IETerrainComponent;

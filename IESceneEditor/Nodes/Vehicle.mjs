@@ -4,6 +4,8 @@ import { nodeRegistry } from '../IENodeRegistry.mjs';
 import * as THREE from 'three';
 
 const states = new WeakMap();
+const wheelStates = new WeakMap();
+const footStates = new WeakMap();
 
 function yawFromQuaternion(quaternion) {
     return new THREE.Euler()
@@ -32,52 +34,352 @@ nodeRegistry.register('control.vehicle', {
         { name: 'acceleration', type: 'number', default: 16 },
         { name: 'braking', type: 'number', default: 26 },
         { name: 'drag', type: 'number', default: 9 },
-        { name: 'turnRate', type: 'number', default: 110 }
+        { name: 'tireGrip', type: 'number', default: 12 },
+        { name: 'wheelRadius', type: 'number', default: 0.34 },
+        { name: 'turnRate', type: 'number', default: 110 },
+        { name: 'maxSteeringAngle', type: 'number', default: 30 },
+        { name: 'steeringResponse', type: 'number', default: 7 },
+        { name: 'wheelBase', type: 'number', default: 2.7 }
     ],
     outputs: [
-        { name: 'exec', type: 'execution' }
+        { name: 'exec', type: 'execution' },
+        { name: 'speed', type: 'number' },
+        { name: 'wheelDelta', type: 'number' },
+        { name: 'steeringAngle', type: 'number' }
     ],
     execute({ node, actor, engine, readInput }) {
         if (!actor) return;
 
-        const dt = Math.min(Math.max(Number(readInput('deltaTime')) || 0, 0), 0.05);
+        const number = (name, fallback = 0) => {
+            const hasInput = node.pins?.some(pin =>
+                pin.name === name && pin.direction === 'input'
+            );
+            if (!hasInput) return fallback;
+            const value = Number(readInput(name));
+            return Number.isFinite(value) ? value : fallback;
+        };
+
+        const dt = Math.min(Math.max(number('deltaTime'), 0), 0.05);
         const forward = THREE.MathUtils.clamp(
-            Number(readInput('forward')) || 0, -1, 1
+            number('forward'), -1, 1
         );
 
         const right = THREE.MathUtils.clamp(
-            Number(readInput('right')) || 0, -1, 1
+            number('right'), -1, 1
         );
 
-        const maxSpeed = Math.max(0, Number(readInput('maxSpeed')) || 0);
-        const reverseSpeed = Math.max(0, Number(readInput('reverseSpeed')) || 0);
-        const acceleration = Math.max(0, Number(readInput('acceleration')) || 0);
-        const braking = Math.max(0, Number(readInput('braking')) || 0);
-        const drag = Math.max(0, Number(readInput('drag')) || 0);
-        const turnRate = Math.max(0, Number(readInput('turnRate')) || 0);
+        const maxSpeed = Math.max(0, number('maxSpeed'));
+        const reverseSpeed = Math.max(0, number('reverseSpeed'));
+        const acceleration = Math.max(0, number('acceleration'));
+        const braking = Math.max(0, number('braking'));
+        const drag = Math.max(0, number('drag'));
+        const tireGrip = Math.max(0, number('tireGrip', 12));
+        const wheelRadius = Math.max(0.001, number('wheelRadius', 0.34));
+        const turnRate = Math.max(0, number('turnRate'));
+        const maxSteeringAngle = Math.max(
+            0,
+            number('maxSteeringAngle', 30)
+        );
+        const steeringResponse = Math.max(
+            0,
+            number('steeringResponse', 7)
+        );
+        const wheelBase = Math.max(0.1, number('wheelBase', 2.7));
 
         let state = states.get(node);
         if (!state) {
-            state = { speed: 0 };
+            state = { speed: 0, wheelDelta: 0, steeringAngle: 0 };
             states.set(node, state);
         }
 
         const throttle = forward;
+        const desired = throttle > 0
+            ? maxSpeed
+            : throttle < 0 ? -reverseSpeed : 0;
+        const body = engine?.getPhysicsBody?.(actor);
+        const dynamicBody = body?.isDynamic?.() === true;
+        let canControl = true;
 
-        const desired = throttle > 0 ? maxSpeed : throttle < 0 ? -reverseSpeed : 0;
-        const rate = throttle === 0 ? drag : state.speed * throttle < 0 ? braking : acceleration;
-        const change = Math.sign(desired - state.speed) * Math.min(Math.abs(desired - state.speed), rate * dt);
-        state.speed += change;
+        if (dynamicBody) {
+            const rotation = body.rotation();
+            const quaternion = new THREE.Quaternion(
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w
+            );
+            const driveDirection = new THREE.Vector3(0, 0, -1)
+                .applyQuaternion(quaternion);
+            driveDirection.y = 0;
+            if (driveDirection.lengthSq() < 1e-8) {
+                driveDirection.set(0, 0, -1);
+            } else {
+                driveDirection.normalize();
+            }
 
-        const steer = -right;
-        const speedRatio = maxSpeed > 0 ? Math.min(Math.abs(state.speed) / maxSpeed, 1) : 0;
+            const velocity = body.linvel();
+            const horizontalVelocity = new THREE.Vector3(
+                velocity.x,
+                0,
+                velocity.z
+            );
+            const currentSpeed = horizontalVelocity.dot(driveDirection);
+            const vehicleUp = new THREE.Vector3(0, 1, 0)
+                .applyQuaternion(quaternion);
+            const grounded = typeof engine?.isGrounded === 'function'
+                ? engine.isGrounded(actor, 0.25) === true
+                : true;
+            canControl = grounded && vehicleUp.y > 0.35;
+            state.speed = currentSpeed;
 
-        if (steer !== 0 && speedRatio > 0.02) {
-            const reverse = state.speed < 0 ? -1 : 1;
-            actor.rotateY(steer * reverse * turnRate * Math.PI / 180 * dt * speedRatio);
+            const targetSteeringAngle = canControl
+                ? -right * maxSteeringAngle
+                : 0;
+            state.steeringAngle = THREE.MathUtils.lerp(
+                state.steeringAngle,
+                targetSteeringAngle,
+                1 - Math.exp(-steeringResponse * dt)
+            );
+
+            if (canControl) {
+                const rate = throttle === 0
+                    ? drag
+                    : currentSpeed * throttle < 0 ? braking : acceleration;
+                const speedChange = THREE.MathUtils.clamp(
+                    desired - currentSpeed,
+                    -rate * dt,
+                    rate * dt
+                );
+                state.speed = currentSpeed + speedChange;
+
+                // Remove sideways sliding only while the tires have ground
+                // contact. Airborne or overturned cars remain fully physical.
+                const lateralVelocity = horizontalVelocity
+                    .clone()
+                    .addScaledVector(driveDirection, -currentSpeed);
+                const grip = 1 - Math.exp(-tireGrip * dt);
+                lateralVelocity.multiplyScalar(1 - grip);
+                const drivenVelocity = driveDirection
+                    .clone()
+                    .multiplyScalar(state.speed)
+                    .add(lateralVelocity);
+                body.setLinvel({
+                    x: drivenVelocity.x,
+                    y: velocity.y,
+                    z: drivenVelocity.z
+                }, true);
+
+                // Bicycle-model steering keeps chassis yaw synchronized with
+                // the travel arc instead of visually drifting sideways.
+                const steeringRadians = THREE.MathUtils.degToRad(
+                    state.steeringAngle
+                );
+                const maximumYawVelocity = THREE.MathUtils.degToRad(turnRate);
+                const targetYawVelocity = THREE.MathUtils.clamp(
+                    state.speed / wheelBase * Math.tan(steeringRadians),
+                    -maximumYawVelocity,
+                    maximumYawVelocity
+                );
+                const angularVelocity = body.angvel();
+                const yawResponse = 1 - Math.exp(-steeringResponse * dt);
+                body.setAngvel({
+                    x: angularVelocity.x,
+                    y: THREE.MathUtils.lerp(
+                        angularVelocity.y,
+                        targetYawVelocity,
+                        yawResponse
+                    ),
+                    z: angularVelocity.z
+                }, true);
+            }
+        } else {
+            const rate = throttle === 0
+                ? drag
+                : state.speed * throttle < 0 ? braking : acceleration;
+            const change = Math.sign(desired - state.speed) * Math.min(
+                Math.abs(desired - state.speed),
+                rate * dt
+            );
+            state.speed += change;
+
+            const steer = -right;
+            const speedRatio = maxSpeed > 0
+                ? Math.min(Math.abs(state.speed) / maxSpeed, 1)
+                : 0;
+
+            if (steer !== 0 && speedRatio > 0.02) {
+                const reverse = state.speed < 0 ? -1 : 1;
+                actor.rotateY(
+                    steer * reverse * turnRate * Math.PI / 180 * dt * speedRatio
+                );
+            }
+
+            actor.translateZ(-state.speed * dt);
+
+            const targetSteeringAngle = -right * maxSteeringAngle;
+            state.steeringAngle = THREE.MathUtils.lerp(
+                state.steeringAngle,
+                targetSteeringAngle,
+                1 - Math.exp(-steeringResponse * dt)
+            );
         }
 
-        actor.translateZ(-state.speed * dt);
+        state.wheelDelta = -THREE.MathUtils.radToDeg(
+            state.speed * dt / wheelRadius
+        );
+    },
+
+    evaluate({ node, output }) {
+        const state = states.get(node);
+        if (output === 'speed') return state?.speed ?? 0;
+        if (output === 'wheelDelta') return state?.wheelDelta ?? 0;
+        if (output === 'steeringAngle') return state?.steeringAngle ?? 0;
+        return undefined;
+    }
+});
+
+nodeRegistry.register('control.vehicleWheel', {
+    name: 'Vehicle Wheel',
+    category: 'Controller',
+    inputs: [
+        { name: 'exec', type: 'execution' },
+        { name: 'Target', type: 'transformable', default: null },
+        { name: 'wheelDelta', type: 'number', default: 0 },
+        { name: 'steeringAngle', type: 'number', default: 0 },
+        { name: 'steer', type: 'boolean', default: false }
+    ],
+    outputs: [{ name: 'exec', type: 'execution' }],
+    execute({ node, readInput }) {
+        const target = readInput('Target');
+        if (!target?.quaternion?.isQuaternion) {
+            throw new TypeError('Vehicle Wheel requires a transformable component');
+        }
+
+        let state = wheelStates.get(node);
+        if (!state || state.target !== target) {
+            state = {
+                target,
+                baseRotation: target.quaternion.clone(),
+                spin: 0
+            };
+            wheelStates.set(node, state);
+        }
+
+        const wheelDelta = Number(readInput('wheelDelta'));
+        const steeringAngle = Number(readInput('steeringAngle'));
+        if (!Number.isFinite(wheelDelta) || !Number.isFinite(steeringAngle)) {
+            throw new Error('Invalid vehicle wheel rotation');
+        }
+
+        state.spin += THREE.MathUtils.degToRad(wheelDelta);
+        // Keep the accumulated angle bounded without introducing a visual jump.
+        state.spin = Math.atan2(Math.sin(state.spin), Math.cos(state.spin));
+        const steering = readInput('steer')
+            ? THREE.MathUtils.degToRad(steeringAngle)
+            : 0;
+        const steeringRotation = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            steering
+        );
+        const spinRotation = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 0, 1),
+            state.spin
+        );
+
+        target.quaternion.copy(state.baseRotation)
+            .multiply(steeringRotation)
+            .multiply(spinRotation);
+        target.updateMatrixWorld?.(true);
+        return 'exec';
+    }
+});
+
+
+nodeRegistry.register('control.playerFoot', {
+    name: 'Player Foot',
+    category: 'Controller',
+    inputs: [
+        { name: 'exec', type: 'execution' },
+        { name: 'Bone Name', type: 'string', default: '' },
+        { name: 'Trace Height', type: 'number', default: 0.5 },
+        { name: 'Trace Distance', type: 'number', default: 1 },
+        { name: 'Foot Offset', type: 'number', default: 0.03 },
+        { name: 'Position Weight', type: 'number', default: 1 },
+        { name: 'Rotation Weight', type: 'number', default: 1 },
+        { name: 'Smoothing', type: 'number', default: 18 }
+    ],
+    outputs: [
+        { name: 'exec', type: 'execution' },
+        { name: 'isGrounded', type: 'boolean' }
+    ],
+    execute({ node, actor, engine, readInput }) {
+        if (!actor) return;
+
+        const boneName = String(readInput('Bone Name') ?? '').trim();
+        if (!boneName) {
+            throw new Error('Player Foot requires a bone name');
+        }
+
+        let state = footStates.get(node);
+        if (
+            !state ||
+            state.actor !== actor ||
+            state.boneName !== boneName
+        ) {
+            let bone = null;
+            actor.traverse?.(object => {
+                if (!bone && object.isBone === true && object.name === boneName) {
+                    bone = object;
+                }
+            });
+
+            if (!bone) {
+                throw new Error(`Player Foot bone not found: ${boneName}`);
+            }
+
+            state = {
+                actor,
+                boneName,
+                bone,
+                isGrounded: false,
+                position: null,
+                normal: new THREE.Vector3(0, 1, 0)
+            };
+            footStates.set(node, state);
+        }
+
+        const number = (name, fallback) => {
+            const hasInput = node.pins?.some(pin =>
+                pin.name === name && pin.direction === 'input'
+            );
+            if (!hasInput) return fallback;
+            const value = Number(readInput(name));
+            return Number.isFinite(value) ? value : fallback;
+        };
+
+        engine?.queueFootIK?.({
+            actor,
+            bone: state.bone,
+            state,
+            traceHeight: Math.max(0, number('Trace Height', 0.5)),
+            traceDistance: Math.max(0, number('Trace Distance', 1)),
+            footOffset: number('Foot Offset', 0.03),
+            positionWeight: THREE.MathUtils.clamp(
+                number('Position Weight', 1), 0, 1
+            ),
+            rotationWeight: THREE.MathUtils.clamp(
+                number('Rotation Weight', 1), 0, 1
+            ),
+            smoothing: Math.max(0, number('Smoothing', 18))
+        });
+
+        return 'exec';
+    },
+    evaluate({ node, output }) {
+        if (output === 'isGrounded') {
+            return footStates.get(node)?.isGrounded ?? false;
+        }
+        return undefined;
     }
 });
 
@@ -169,9 +471,9 @@ nodeRegistry.register('control.player', {
                 speed: 0,
 				jumpPressed: false,
 				isGrounded: false,
-                groundedHold: 0,
-                jumpGroundLock: 0,
-                yaw: null
+				groundedHold: 0,
+				jumpGroundLock: 0,
+				yaw: null
             };
 
             states.set(node, state);

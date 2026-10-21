@@ -5,13 +5,18 @@ const crypto = require('crypto');
 const { getTemplates } = require('../IEActorAssetEditor/IEAssetTemplates');
 
 class IEAssetCreator {
-    static open(_context) {
+    static open(context) {
         return new Promise(resolve => {
             const panel = vscode.window.createWebviewPanel(
                 'infinite.assetCreator',
                 'Create IE Asset',
                 vscode.ViewColumn.Active,
-                { enableScripts: true }
+                {
+                    enableScripts: true,
+                    localResourceRoots: [
+                        vscode.Uri.joinPath(context.extensionUri, 'images')
+                    ]
+                }
             );
 
             const nonce = crypto.randomBytes(16).toString('hex');
@@ -42,7 +47,15 @@ class IEAssetCreator {
                             type: t.type,
                             label: t.label,
                             description: t.description,
-                            icon: t.icon
+                            icon: t.icon,
+                            iconUri: t.type === 'scene'
+                                ? panel.webview.asWebviewUri(vscode.Uri.joinPath(
+                                    context.extensionUri,
+                                    'images',
+                                    'editor-icons',
+                                    'scene.svg'
+                                )).toString()
+                                : null
                         }))
                     });
                 }
@@ -83,7 +96,7 @@ class IEAssetCreator {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy"
-content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+content="default-src 'none'; img-src ${webview.cspSource}; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <style nonce="${nonce}">
     * { box-sizing: border-box; }
 
@@ -147,6 +160,18 @@ content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${non
     .asset-icon {
         font-size: 24px;
         margin-bottom: 12px;
+    }
+
+    .asset-icon-image {
+        display: block;
+        width: 25px;
+        height: 25px;
+        object-fit: contain;
+    }
+
+    body.vscode-light .asset-icon-image,
+    body.vscode-high-contrast-light .asset-icon-image {
+        filter: invert(1);
     }
 
     .asset-title {
@@ -263,7 +288,8 @@ content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${non
         texture: '▧',
         skeleton: '♧',
         animation: '▶',
-        animationState: '◎'
+        animationState: '◎',
+        scene: '◉'
     };
 
     function updateCreateButton() {
@@ -281,7 +307,15 @@ content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${non
 
             const icon = document.createElement('div');
             icon.className = 'asset-icon';
-            icon.textContent = icons[template.type] ?? '◇';
+            if (template.iconUri) {
+                const image = document.createElement('img');
+                image.className = 'asset-icon-image';
+                image.src = template.iconUri;
+                image.alt = '';
+                icon.appendChild(image);
+            } else {
+                icon.textContent = icons[template.type] ?? '◇';
+            }
 
             const title = document.createElement('div');
             title.className = 'asset-title';

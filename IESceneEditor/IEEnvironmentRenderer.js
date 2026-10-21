@@ -192,6 +192,18 @@ export default class IEEnvironmentRenderer {
             this.value(component.castShadow, false)
         );
 
+        this.sun.shadow.mapSize.set(4096, 4096);
+        this.sun.shadow.camera.left = -50;
+        this.sun.shadow.camera.right = 50;
+        this.sun.shadow.camera.top = 50;
+        this.sun.shadow.camera.bottom = -50;
+        this.sun.shadow.camera.near = 0.1;
+        this.sun.shadow.camera.far = 250;
+        this.sun.shadow.bias = -0.0002;
+        this.sun.shadow.normalBias = 0.02;
+        this.sun.shadow.radius = 2;
+        this.sun.shadow.camera.updateProjectionMatrix();
+
         // Default sun direction until the component's
         // transform is connected.
         this.sun.position.set(30, 60, 20);

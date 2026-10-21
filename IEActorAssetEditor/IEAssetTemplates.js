@@ -18,6 +18,8 @@ function registerTemplate(type, options) {
         label: options.label,
         description: options.description ?? '',
         icon: options.icon ?? 'file',
+        extension: options.extension ?? '.ieasset',
+        wrap: options.wrap !== false,
         create: options.create
     });
 }
@@ -33,11 +35,15 @@ function createTemplate(type, name) {
         throw new Error(`Unknown asset type: ${type}`);
     }
 
+    const data = template.create(name);
+
+    if (!template.wrap) return data;
+
     return {
         id: uuid(),
         name,
         type,
-        data: template.create(name)
+        data
     };
 }
 
@@ -77,7 +83,42 @@ registerTemplate('actor', {
 });
 
 // =====================================================
-// 3. GEOMETRY
+// 3. SCENE
+// =====================================================
+
+registerTemplate('scene', {
+    label: 'Scene',
+    description: 'Create a playable scene with a World root',
+    icon: 'globe',
+    extension: '.iescene',
+    wrap: false,
+
+    create: name => ({
+        name,
+        version: 1,
+        actors: [{
+            id: uuid(),
+            name: 'World',
+            type: 'World',
+            components: [{
+                id: uuid(),
+                type: 'terrain',
+                name: 'terrain',
+                enabled: true,
+                parent: null,
+                terrain: null,
+                physics: true,
+                friction: 0.8,
+                restitution: 0,
+                castShadow: false,
+                receiveShadow: true
+            }]
+        }]
+    })
+});
+
+// =====================================================
+// 4. GEOMETRY
 // =====================================================
 
 registerTemplate('geometry', {
@@ -118,14 +159,16 @@ registerTemplate('terrain', {
     create: () => {
         const height = { id: uuid(), type: 'world.heightMap', position: [30, 120], pins: [] };
         const plane = { id: uuid(), type: 'world.plane', position: [330, 120], pins: [] };
+        const material = { id: uuid(), type: 'world.terrainMaterial', position: [330, 390], pins: [] };
         const output = { id: uuid(), type: 'world.terrainOutput', position: [650, 120], pins: [] };
         const input = (node, name, type, value) => { const pin = { id: uuid(), name, type, direction: 'input', value }; node.pins.push(pin); return pin; };
         const out = (node, name, type) => { const pin = { id: uuid(), name, type, direction: 'output' }; node.pins.push(pin); return pin; };
-        input(height, 'Width', 'number', 129); input(height, 'Height', 'number', 129); input(height, 'Seed', 'number', 1); input(height, 'Scale', 'number', 4); input(height, 'Amplitude', 'number', 8); input(height, 'Octaves', 'number', 5); input(height, 'Persistence', 'number', .5); input(height, 'Lacunarity', 'number', 2);
+        input(height, 'Width', 'number', 129); input(height, 'Height', 'number', 129); input(height, 'Seed', 'number', 1); input(height, 'Scale', 'number', 4); input(height, 'Amplitude', 'number', 0); input(height, 'Octaves', 'number', 5); input(height, 'Persistence', 'number', .5); input(height, 'Lacunarity', 'number', 2);
         const heightOut = out(height, 'Heightmap', 'heightmap');
         input(plane, 'Width', 'number', 100); input(plane, 'Depth', 'number', 100); input(plane, 'Resolution X', 'number', 128); input(plane, 'Resolution Y', 'number', 128); const heightIn = input(plane, 'Heightmap', 'heightmap', null); const geometryOut = out(plane, 'Geometry', 'geometry');
-        const geometryIn = input(output, 'Geometry', 'geometry', null); out(output, 'Terrain', 'terrain');
-        return { version: 1, nodes: [height, plane, output], links: [{ id: uuid(), from: heightOut.id, to: heightIn.id }, { id: uuid(), from: geometryOut.id, to: geometryIn.id }] };
+        input(material, 'Base Color', 'color', '#6f8f45'); input(material, 'Texture', 'texture', null); input(material, 'Texture Scale', 'vector2', [16, 16]); input(material, 'Roughness', 'number', .9); input(material, 'Metalness', 'number', 0); const materialOut = out(material, 'Material', 'material');
+        const geometryIn = input(output, 'Geometry', 'geometry', null); const materialIn = input(output, 'Material', 'material', null); out(output, 'Terrain', 'terrain');
+        return { version: 2, nodes: [height, plane, material, output], links: [{ id: uuid(), from: heightOut.id, to: heightIn.id }, { id: uuid(), from: geometryOut.id, to: geometryIn.id }, { id: uuid(), from: materialOut.id, to: materialIn.id }] };
     }
 });
 

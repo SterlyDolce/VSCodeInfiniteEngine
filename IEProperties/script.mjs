@@ -1401,8 +1401,10 @@ window.addEventListener('message', event => {
 		selectedComponentId = null;
 	}
 
-	if (assetMode) {
+	if ('selectedComponentId' in message) {
 		selectedComponentId = message.selectedComponentId ?? null;
+	} else if (assetMode) {
+		selectedComponentId = null;
 	}
 
 	renderActor();
@@ -1582,6 +1584,10 @@ function bindComponentList(components) {
 					postOutlineUpdate('selectAssetComponent', {
 						componentId: selectedComponentId
 					});
+				} else {
+					postOutlineUpdate('selectSceneComponent', {
+						componentId: selectedComponentId
+					});
 				}
 				if (selectedComponentId) {
 					const selected = currentActor.components.find(
@@ -1679,7 +1685,9 @@ function createInput(component, name, value, schema) {
 
 			case 'vector3': {
 				const values = Array.isArray(value)
-					? value
+					? value.map(number => name === 'rotation'
+						? Number(THREE.MathUtils.radToDeg(number).toFixed(4))
+						: number)
 					: [0, 0, 0];
 
 				input = `
@@ -1756,7 +1764,7 @@ function createInput(component, name, value, schema) {
             data-is-array="${isArray}">
 
             <div class="property-label">
-                ${escapeHtml(formatName(name))}
+                ${escapeHtml(formatName(name))}${name === 'rotation' ? ' (°)' : ''}
             </div>
 
             ${input}
@@ -2279,7 +2287,10 @@ function bindPropertyInputs() {
 					) return;
 
 					if (['position', 'rotation', 'scale'].includes(property)) {
-						sendUpdate(target, id, property, { axis, value: numericValue });
+						const storedValue = property === 'rotation'
+							? THREE.MathUtils.degToRad(numericValue)
+							: numericValue;
+						sendUpdate(target, id, property, { axis, value: storedValue });
 						return;
 					}
 

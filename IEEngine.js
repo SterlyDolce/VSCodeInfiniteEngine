@@ -18,6 +18,28 @@ class IEEngine {
         this.frameDuration = 1000 / this.targetFPS;
 
         this._loopHandle = undefined;
+        this.errorHandler = undefined;
+    }
+
+    setErrorHandler(handler) {
+        this.errorHandler = handler;
+        return this;
+    }
+
+    contextualize(error, context) {
+        const runtimeError = error instanceof Error ? error : new Error(String(error));
+        runtimeError.runtimeContext ??= context;
+        return runtimeError;
+    }
+
+    reportError(error, context) {
+        const runtimeError = this.contextualize(error, context);
+        try {
+            this.errorHandler?.(runtimeError);
+        } catch (handlerError) {
+            console.error('Infinite Engine error handler failed:', handlerError);
+        }
+        return runtimeError;
     }
 
     loadScene(scene) {
@@ -54,11 +76,29 @@ class IEEngine {
 
         this.lastTime = performance.now();
 
-        this.game.onBegin();
-
-        this.startActors();
-
-        this.loop();
+        let began = false;
+        try {
+            try {
+                this.game.onBegin();
+            } catch (error) {
+                throw this.contextualize(error, { phase: 'Game.onBegin' });
+            }
+            began = true;
+            this.startActors();
+            this.loop();
+        } catch (error) {
+            this.running = false;
+            this.paused = false;
+            if (this._loopHandle) {
+                clearTimeout(this._loopHandle);
+                this._loopHandle = undefined;
+            }
+            if (began) {
+                try { this.stopActors(); } catch { /* Preserve the startup error. */ }
+                try { this.game?.onEnd(); } catch { /* Preserve the startup error. */ }
+            }
+            throw error;
+        }
     }
 
     pause() {
@@ -87,14 +127,25 @@ class IEEngine {
         this.running = false;
         this.paused = false;
 
-        this.stopActors();
-
-        this.game?.onEnd();
-
-        if (this._loopHandle) {
-            clearTimeout(this._loopHandle);
-            this._loopHandle = undefined;
+        let firstError;
+        try {
+            this.stopActors();
+        } catch (error) {
+            firstError = error;
         }
+
+        try {
+            this.game?.onEnd();
+        } catch (error) {
+            firstError ??= this.contextualize(error, { phase: 'Game.onEnd' });
+        } finally {
+            if (this._loopHandle) {
+                clearTimeout(this._loopHandle);
+                this._loopHandle = undefined;
+            }
+        }
+
+        if (firstError) throw firstError;
     }
 
     loop() {
@@ -110,7 +161,14 @@ class IEEngine {
 
             this.lastTime = frameStart;
 
-            this.update(deltaTime);
+            try {
+                this.update(deltaTime);
+            } catch (error) {
+                const runtimeError = this.contextualize(error, { phase: 'Update' });
+                try { this.stop(); } catch { /* Report the original runtime error. */ }
+                this.reportError(runtimeError, runtimeError.runtimeContext);
+                return;
+            }
         }
 
         const frameEnd = performance.now();
@@ -136,7 +194,11 @@ class IEEngine {
             return;
         }
 
-        this.game?.onUpdate(deltaTime);
+        try {
+            this.game?.onUpdate(deltaTime);
+        } catch (error) {
+            throw this.contextualize(error, { phase: 'Game.onUpdate' });
+        }
 
         for (const actor of this.activeScene.getActors()) {
             this.updateActor(
@@ -158,7 +220,17 @@ class IEEngine {
                 }
 
                 if (typeof component.start === 'function') {
-                    component.start();
+                    try {
+                        component.start();
+                    } catch (error) {
+                        throw this.contextualize(error, {
+                            phase: 'Component.start',
+                            actor: actor.name,
+                            actorId: actor.id,
+                            component: component.name ?? component.type,
+                            componentId: component.id
+                        });
+                    }
                 }
             }
         }
@@ -172,7 +244,17 @@ class IEEngine {
         for (const actor of this.activeScene.getActors()) {
             for (const component of actor.components) {
                 if (typeof component.stop === 'function') {
-                    component.stop();
+                    try {
+                        component.stop();
+                    } catch (error) {
+                        throw this.contextualize(error, {
+                            phase: 'Component.stop',
+                            actor: actor.name,
+                            actorId: actor.id,
+                            component: component.name ?? component.type,
+                            componentId: component.id
+                        });
+                    }
                 }
             }
         }
@@ -185,9 +267,17 @@ class IEEngine {
             }
 
             if (typeof component.update === 'function') {
-                component.update(
-                    deltaTime
-                );
+                try {
+                    component.update(deltaTime);
+                } catch (error) {
+                    throw this.contextualize(error, {
+                        phase: 'Component.update',
+                        actor: actor.name,
+                        actorId: actor.id,
+                        component: component.name ?? component.type,
+                        componentId: component.id
+                    });
+                }
             }
         }
     }

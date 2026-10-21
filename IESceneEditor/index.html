@@ -12,12 +12,57 @@
 <body>
     <div id="viewport"></div>
     <div id="preview-viewport"></div>
+    <div id="viewport-toolbar" role="toolbar" aria-label="Viewport controls">
+        <select id="viewport-view" title="Camera view" aria-label="Camera view">
+            <option value="perspective">Perspective</option>
+            <option value="top">Top</option>
+            <option value="bottom">Bottom</option>
+            <option value="front">Front</option>
+            <option value="back">Back</option>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+        </select>
+        <span class="toolbar-separator"></span>
+        <button class="transform-mode active" data-mode="translate" title="Move (W)" aria-label="Move"><span class="game-icon" style="--game-icon: url('{{MOVE_ICON_URI}}')"></span></button>
+        <button class="transform-mode" data-mode="rotate" title="Rotate (E)" aria-label="Rotate"><span class="game-icon" style="--game-icon: url('{{ROTATE_ICON_URI}}')"></span></button>
+        <button class="transform-mode" data-mode="scale" title="Scale (R)" aria-label="Scale"><span class="game-icon" style="--game-icon: url('{{SCALE_ICON_URI}}')"></span></button>
+        <button id="transform-space" title="Toggle world/local transform space">World</button>
+        <span class="toolbar-separator"></span>
+        <button id="translation-snap" class="toggle" title="Toggle position snapping">⌗</button>
+        <select id="translation-snap-value" title="Position snap size" aria-label="Position snap size">
+            <option value="0.1">0.1</option>
+            <option value="0.5">0.5</option>
+            <option value="1" selected>1</option>
+            <option value="5">5</option>
+            <option value="10">10</option>
+        </select>
+        <button id="rotation-snap" class="toggle" title="Toggle rotation snapping">∠</button>
+        <select id="rotation-snap-value" title="Rotation snap angle" aria-label="Rotation snap angle">
+            <option value="5">5°</option>
+            <option value="10">10°</option>
+            <option value="15" selected>15°</option>
+            <option value="30">30°</option>
+            <option value="45">45°</option>
+        </select>
+        <span class="toolbar-separator"></span>
+        <label class="speed-control" title="Fly camera speed">Speed
+            <select id="camera-speed" aria-label="Fly camera speed">
+                <option value="2">2</option>
+                <option value="4">4</option>
+                <option value="8" selected>8</option>
+                <option value="16">16</option>
+                <option value="32">32</option>
+                <option value="64">64</option>
+            </select>
+        </label>
+    </div>
     <div id="view-gizmo"></div>
 
     <script>
         window.INFINITE_ASSETS = {
             cameraModel: '{{CAMERA_MODEL_URI}}',
             viewGizmoModel: '{{VIEW_GIZMO_MODEL_URI}}',
+			checkerTexture: '{{CHECKER_TEXTURE_URI}}',
 			rapierModule: '{{RAPIER_URI}}'
 
         };

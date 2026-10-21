@@ -654,6 +654,67 @@ class IEActorAssetEditor {
             });
         };
 
+        const duplicateComponentTransform = async message => {
+            if (!message.componentId) return;
+            const values = validateTransform(message);
+            let duplicateId = null;
+
+            await writeAsset(asset => {
+                const components = asset.data.components;
+                const source = components.find(item =>
+                    item.id === message.componentId
+                );
+                if (!source || source.type === 'transform') {
+                    throw new Error('Component cannot be duplicated');
+                }
+
+                const subtreeIds = new Set([source.id]);
+                let changed = true;
+                while (changed) {
+                    changed = false;
+                    for (const component of components) {
+                        if (subtreeIds.has(component.parent) && !subtreeIds.has(component.id)) {
+                            subtreeIds.add(component.id);
+                            changed = true;
+                        }
+                    }
+                }
+
+                const copies = components
+                    .filter(component => subtreeIds.has(component.id))
+                    .map(component => structuredClone(component));
+                const ids = new Map(copies.map(component => [
+                    component.id,
+                    crypto.randomUUID()
+                ]));
+
+                for (const copy of copies) {
+                    const oldId = copy.id;
+                    copy.id = ids.get(oldId);
+                    if (ids.has(copy.parent)) copy.parent = ids.get(copy.parent);
+                    if (oldId === source.id) {
+                        duplicateId = copy.id;
+                        copy.name = `${copy.name ?? source.type} Copy`;
+                        const target = copy.transform &&
+                            typeof copy.transform === 'object' &&
+                            !Array.isArray(copy.transform)
+                            ? copy.transform : copy;
+                        for (const name of ['position', 'rotation', 'scale']) {
+                            target[name] = values[name];
+                        }
+                    }
+                }
+
+                components.push(...copies);
+            });
+
+            selectedComponentId = duplicateId;
+            await load();
+            if (outliner && duplicateId) {
+                await outliner.revealComponent(key, duplicateId);
+            }
+        };
+
 
         const selectComponent = async message => {
             const asset = readAsset();
@@ -717,6 +778,10 @@ class IEActorAssetEditor {
 
                     case 'updateComponentTransform':
                         await updateComponentTransform(message);
+                        break;
+
+                    case 'duplicateComponentTransform':
+                        await duplicateComponentTransform(message);
                         break;
 
 

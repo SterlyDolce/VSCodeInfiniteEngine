@@ -74,6 +74,7 @@ export class IEScriptRuntime {
         this.incoming = new Map();
         this.outgoing = new Map();
         this.stopped = false;
+        this.diagnostics = options.diagnostics ?? {};
 
         this.variables = options.variables ?? new Map();
         this.functions = options.functions ?? new Map(
@@ -303,6 +304,8 @@ export class IEScriptRuntime {
             return definition.evaluate(
                 this.createContext(node, frame, stack, output)
             );
+        } catch (error) {
+            throw this.annotateError(error, node, 'evaluate');
         } finally {
             stack.delete(node.id);
         }
@@ -330,7 +333,23 @@ export class IEScriptRuntime {
             throw new Error(`Node is not executable: ${node.type}`);
         }
 
-        return definition.execute(this.createContext(node, frame));
+        try {
+            return definition.execute(this.createContext(node, frame));
+        } catch (error) {
+            throw this.annotateError(error, node, 'execute');
+        }
+    }
+
+    annotateError(error, node, operation) {
+        const runtimeError = error instanceof Error ? error : new Error(String(error));
+        runtimeError.ieRuntimeContext ??= {
+            ...this.diagnostics,
+            phase: `VisualScript.${operation}`,
+            node: node.name ?? node.type,
+            nodeType: node.type,
+            nodeId: node.id
+        };
+        return runtimeError;
     }
 
     enqueue(node, name, queue) {

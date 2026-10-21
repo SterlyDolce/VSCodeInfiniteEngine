@@ -31,6 +31,7 @@ const IESkeletonEditor = require('./IESkeletonEditor/IESkeletonEditor');
 const IEWorldEditor = require('./IEWorldEditor/IEWorldEditor');
 const IEAssetExplorer = require('./IEAssetExplorer');
 const IEProjectEditor = require('./IEProjectEditor/IEProjectEditor');
+const IEWelcomeEditor = require('./IEWelcomeEditor');
 
 
 // REGISTRY
@@ -123,6 +124,74 @@ async function activate(context) {
 		uri => IEModelViewer.import(uri)
 	);
 
+	const createAssetFolderCommand = vscode.commands.registerCommand(
+		'infinite.createAssetFolder',
+		async item => {
+			const workspace = item?.resourceUri
+				? vscode.workspace.getWorkspaceFolder(item.resourceUri)
+				: vscode.workspace.workspaceFolders?.[0];
+			if (!workspace) {
+				vscode.window.showErrorMessage(
+					'Open an Infinite Engine project before creating a folder.'
+				);
+				return;
+			}
+
+			const parentUri = item?.isDirectory
+				? item.resourceUri
+				: vscode.Uri.joinPath(workspace.uri, 'Assets');
+			const folderName = await vscode.window.showInputBox({
+				title: 'Create Asset Folder',
+				prompt: `Folder name inside ${vscode.workspace.asRelativePath(parentUri) || 'Assets'}`,
+				placeHolder: 'New Folder',
+				validateInput(value) {
+					const name = value.trim();
+					if (!name) return 'Enter a folder name.';
+					if (name === '.' || name === '..') return 'Choose another folder name.';
+					if (/[\\/:*?"<>|\x00-\x1f]/.test(name)) {
+						return 'Folder names cannot contain path separators or reserved characters.';
+					}
+					if (/[. ]$/.test(name)) {
+						return 'Folder names cannot end with a period or space.';
+					}
+					return null;
+				}
+			});
+			if (folderName === undefined) return;
+
+			const folderUri = vscode.Uri.joinPath(parentUri, folderName.trim());
+			try {
+				await vscode.workspace.fs.stat(folderUri);
+				vscode.window.showErrorMessage(
+					`A file or folder named "${folderName.trim()}" already exists.`
+				);
+				return;
+			} catch (error) {
+				if (error?.code !== 'FileNotFound') {
+					vscode.window.showErrorMessage(
+						`Unable to check the destination: ${error instanceof Error ? error.message : String(error)}`
+					);
+					return;
+				}
+			}
+
+			try {
+				await vscode.workspace.fs.createDirectory(folderUri);
+				assetExplorer.refresh(item?.isDirectory ? item : undefined);
+				if (item?.isDirectory) {
+					await assetTreeView.reveal(item, {
+						expand: true,
+						focus: true
+					});
+				}
+			} catch (error) {
+				vscode.window.showErrorMessage(
+					`Failed to create asset folder: ${error instanceof Error ? error.message : String(error)}`
+				);
+			}
+		}
+	);
+
 	assetWatcher.onDidChange(() => {
 		assetExplorer.refresh();
 	});
@@ -133,6 +202,7 @@ async function activate(context) {
 		assetWatcher,
 		importAssetsCommand,
 		importModelAssetCommand,
+		createAssetFolderCommand,
 
 		assetWatcher.onDidCreate(refreshAssets),
 		assetWatcher.onDidDelete(refreshAssets),
@@ -170,10 +240,41 @@ async function activate(context) {
 	const ieProject = new IEProject(context);
 
 	const sceneEditor = new IESceneEditor(context);
+	sceneEditor.setPanelDisposeHandler(async () => {
+		try {
+			if (engine.running) engine.stop();
+		} finally {
+			await vscode.commands.executeCommand(
+				'setContext',
+				'infinite.isPlaying',
+				false
+			);
+			await vscode.commands.executeCommand(
+				'setContext',
+				'infinite.isPaused',
+				false
+			);
+		}
+	});
 
 	const outlinerProvider = new IEOutlinerProvider();
 
 	const propertiesProvider = new IEPropertiesProvider(context, sceneEditor);
+
+	sceneEditor.setSceneChangeHandler(async ({ sceneUri, scene, selection, selectedActorId }) => {
+		outlinerProvider.setActors(scene.getActors());
+
+		const actorId = selection?.actorId ?? selectedActorId;
+		const actor = actorId ? scene.getActor(actorId) : null;
+		if (actor) {
+			propertiesProvider.setActor(actor, selection?.componentId ?? null);
+			await outlinerProvider.revealActor(actor.id);
+		} else {
+			propertiesProvider.clear();
+		}
+
+		await context.workspaceState.update('activeSceneUri', sceneUri.toString());
+	});
 
 
 	const selectScriptItemCommand = vscode.commands.registerCommand(
@@ -230,6 +331,40 @@ async function activate(context) {
 
 
 	const engine = new IEEngine(context, gameOutput);
+	let handlingRuntimeError = false;
+	const reportRuntimeError = async payload => {
+		if (handlingRuntimeError) return;
+		handlingRuntimeError = true;
+		try {
+			const contextData = payload?.runtimeContext ?? payload?.context ?? {};
+			const details = [
+				contextData.phase,
+				contextData.actor && `actor "${contextData.actor}"`,
+				contextData.component && `component "${contextData.component}"`,
+				contextData.node && `node "${contextData.node}"`
+			].filter(Boolean).join(' · ');
+			const message = payload?.message ?? String(payload);
+			gameOutput.appendLine(`\n[Runtime Error]${details ? ` ${details}` : ''}`);
+			gameOutput.appendLine(message);
+			if (payload?.stack && payload.stack !== message) {
+				gameOutput.appendLine(payload.stack);
+			}
+			gameOutput.show(true);
+			vscode.window.showErrorMessage(
+				`Infinite Engine stopped: ${details ? `${details}: ` : ''}${message}`
+			);
+			await vscode.commands.executeCommand('infinite.stop');
+		} finally {
+			handlingRuntimeError = false;
+		}
+	};
+
+	engine.setErrorHandler(error => {
+		void reportRuntimeError(error);
+	});
+	sceneEditor.setRuntimeErrorHandler(error => {
+		void reportRuntimeError(error);
+	});
 
 	sceneEditor.setPrintHandler((...values) => {
 		engine.print(...values);
@@ -291,6 +426,10 @@ async function activate(context) {
 						);
 
 					if (shouldOpenProject) {
+						await context.globalState.update(
+							'infinite.pendingProjectWelcome',
+							projectUri.toString()
+						);
 						await vscode.commands
 							.executeCommand(
 								'vscode.openFolder',
@@ -320,6 +459,7 @@ async function activate(context) {
 		vscode.commands.registerCommand(
 			'infinite.play',
 			async () => {
+				let sceneUri;
 				try {
 					const workspace =
 						vscode.workspace
@@ -331,24 +471,22 @@ async function activate(context) {
 						);
 					}
 
-					const projectRoot =
-						workspace.uri.fsPath;
-
-					const activeSceneUriString =
-						context.workspaceState.get(
-							'activeSceneUri'
-						);
-
-					if (!activeSceneUriString) {
-						throw new Error(
-							'No Infinite scene is active.'
-						);
+					if (engine.running) {
+						throw new Error('Infinite Engine is already playing.');
 					}
 
-					const sceneUri =
-						vscode.Uri.parse(
-							activeSceneUriString
-						);
+					const launch = await resolveProjectLaunch(
+						workspace,
+						context.workspaceState.get('activeSceneUri')
+					);
+					sceneUri = launch.sceneUri;
+					// Reveal the launch scene even when its retained webview already
+					// exists. Hidden webviews can reject runtime messages.
+					await vscode.commands.executeCommand(
+						'vscode.openWith',
+						sceneUri,
+						'infinite.sceneEditor'
+					);
 
 					const scene =
 						new IEScene(
@@ -357,14 +495,7 @@ async function activate(context) {
 
 					await scene.load();
 
-					const path =
-						require('path');
-
-					const mainPath =
-						path.join(
-							projectRoot,
-							'main.js'
-						);
+					const mainPath = launch.entryPath;
 
 					delete require.cache[
 						require.resolve(
@@ -395,8 +526,6 @@ async function activate(context) {
 						game
 					);
 
-					engine.start();
-
 					await sceneEditor
 						.beginPlay(
 							sceneUri,
@@ -404,6 +533,8 @@ async function activate(context) {
 								.activeScene
 								.toJSON()
 						);
+
+					engine.start();
 
 					await vscode.commands
 						.executeCommand(
@@ -420,6 +551,20 @@ async function activate(context) {
 						);
 				}
 				catch (error) {
+					try {
+						engine.stop();
+					} catch (stopError) {
+						console.error('Failed to roll back engine startup:', stopError);
+					}
+					if (sceneUri) {
+						try {
+							await sceneEditor.stopPlay(sceneUri);
+						} catch (stopError) {
+							console.error('Failed to roll back play mode:', stopError);
+						}
+					}
+					await vscode.commands.executeCommand('setContext', 'infinite.isPlaying', false);
+					await vscode.commands.executeCommand('setContext', 'infinite.isPaused', false);
 					const message =
 						error instanceof Error
 							? error.message
@@ -519,33 +664,26 @@ async function activate(context) {
 						'activeSceneUri'
 					);
 
-				if (activeSceneUriString) {
-					const sceneUri =
-						vscode.Uri.parse(
-							activeSceneUriString
+				try {
+					if (activeSceneUriString) {
+						await sceneEditor.stopPlay(
+							vscode.Uri.parse(activeSceneUriString)
 						);
-
-					await sceneEditor
-						.stopPlay(
-							sceneUri
-						);
+					}
+				} finally {
+					let stopError;
+					try {
+						engine.stop();
+					} catch (error) {
+						stopError = error;
+					}
+					await vscode.commands.executeCommand('setContext', 'infinite.isPlaying', false);
+					await vscode.commands.executeCommand('setContext', 'infinite.isPaused', false);
+					if (stopError) {
+						const message = stopError instanceof Error ? stopError.message : String(stopError);
+						vscode.window.showErrorMessage(`Failed to stop cleanly: ${message}`);
+					}
 				}
-
-				engine.stop();
-
-				await vscode.commands
-					.executeCommand(
-						'setContext',
-						'infinite.isPlaying',
-						false
-					);
-
-				await vscode.commands
-					.executeCommand(
-						'setContext',
-						'infinite.isPaused',
-						false
-					);
 			}
 		);
 
@@ -593,8 +731,8 @@ async function activate(context) {
 			const sceneUri = input.uri;
 
 			try {
-				const scene = new IEScene(sceneUri);
-				await scene.load();
+				const snapshot = await sceneEditor.getSceneSnapshot(sceneUri);
+				const { scene } = snapshot;
 
 				const child = scene.getActor(actorId);
 				const parent = scene.getActor(parentId);
@@ -621,29 +759,9 @@ async function activate(context) {
 
 				child.parent = parent.id;
 
-				await scene.save();
-
-				// Refresh the scene viewport.
-				await sceneEditor.refreshScene(sceneUri);
-
-				// Refresh the Outliner.
-				outlinerProvider.setActors(scene.getActors());
-
-				// Keep the moved Actor selected.
-				sceneEditor.selectActor(sceneUri, child.id);
-				await outlinerProvider.revealActor(child.id);
-
-				const latestTab = vscode.window.tabGroups
-					.activeTabGroup.activeTab;
-
-				if (latestTab?.input?.uri?.toString() ===
-					sceneUri.toString()) {
-					const latestChild = scene.getActor(child.id);
-
-					if (latestChild) {
-						propertiesProvider.setActor(latestChild);
-					}
-				}
+				await sceneEditor.commitSceneSnapshot(snapshot, {
+					selectedActorId: child.id
+				});
 
 			} catch (error) {
 				console.error(
@@ -665,12 +783,22 @@ async function activate(context) {
 
 
 	const activeSceneListener = vscode.window.tabGroups.onDidChangeTabs(async () => {
-		await refreshOutlinerFromActiveScene(context, outlinerProvider);
+		await refreshOutlinerFromActiveScene(
+			context,
+			outlinerProvider,
+			propertiesProvider,
+			sceneEditor
+		);
 		await propertiesProvider.syncActiveEditor();
 	});
 
 	const activeTabGroupListener = vscode.window.tabGroups.onDidChangeTabGroups(async () => {
-		await refreshOutlinerFromActiveScene(context, outlinerProvider);
+		await refreshOutlinerFromActiveScene(
+			context,
+			outlinerProvider,
+			propertiesProvider,
+			sceneEditor
+		);
 		await propertiesProvider.syncActiveEditor();
 	});
 
@@ -682,19 +810,12 @@ async function activate(context) {
 		vscode.commands.registerCommand(
 			'infinite.selectActor',
 			async actorId => {
-				const activeSceneUriString =
-					context.workspaceState.get(
-						'activeSceneUri'
-					);
-
-				if (!activeSceneUriString) {
-					return;
-				}
-
-				const sceneUri =
-					vscode.Uri.parse(
-						activeSceneUriString
-					);
+				const activeInput = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+				if (
+					!(activeInput instanceof vscode.TabInputCustom) ||
+					activeInput.viewType !== 'infinite.sceneEditor'
+				) return;
+				const sceneUri = activeInput.uri;
 
 				try {
 					const scene =
@@ -795,8 +916,8 @@ async function activate(context) {
 					throw new Error('Scene workspace not found.');
 				}
 
-				const scene = new IEScene(sceneUri);
-				await scene.load();
+				const snapshot = await sceneEditor.getSceneSnapshot(sceneUri);
+				const { scene } = snapshot;
 
 				let actor;
 
@@ -978,11 +1099,9 @@ async function activate(context) {
 					}
 				}
 
-				await scene.save();
-
-				outlinerProvider.setActors(scene.getActors());
-
-				await sceneEditor.refreshScene(sceneUri);
+				await sceneEditor.commitSceneSnapshot(snapshot, {
+					selectedActorId: actor.id
+				});
 
 				vscode.window.showInformationMessage(
 					`${actor.name} added to ${scene.name}`
@@ -1018,8 +1137,8 @@ async function activate(context) {
 			const sceneUri = input.uri;
 
 			try {
-				const scene = new IEScene(sceneUri);
-				await scene.load();
+				const snapshot = await sceneEditor.getSceneSnapshot(sceneUri);
+				const { scene } = snapshot;
 
 				const actor = scene.getActors().find(a => a.id === actorId);
 
@@ -1061,11 +1180,7 @@ async function activate(context) {
 					scene.removeActor(id);
 				}
 
-				await scene.save();
-				await sceneEditor.refreshScene(sceneUri);
-
-				outlinerProvider.setActors(scene.getActors());
-				propertiesProvider.clear();
+				await sceneEditor.commitSceneSnapshot(snapshot);
 
 			} catch (error) {
 				console.error('Failed to delete actor:', error);
@@ -1817,7 +1932,10 @@ async function activate(context) {
 	);
 
 	const IEAssetCreator = require('./IEAssetCreator/IEAssetCreator');
-	const { createTemplate } = require('./IEActorAssetEditor/IEAssetTemplates');
+	const {
+		createTemplate,
+		getTemplates
+	} = require('./IEActorAssetEditor/IEAssetTemplates');
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(
@@ -1854,9 +1972,25 @@ async function activate(context) {
 					return;
 				}
 
+				const template = getTemplates().find(
+					item => item.type === selection.type
+				);
+				if (!template) {
+					vscode.window.showErrorMessage('Unknown asset template.');
+					return;
+				}
+
+				const targetFolder = selection.type === 'scene'
+					? vscode.Uri.joinPath(
+						vscode.workspace.workspaceFolders[0].uri,
+						'Scenes'
+					)
+					: folder;
+				await vscode.workspace.fs.createDirectory(targetFolder);
+
 				const uri = vscode.Uri.joinPath(
-					folder,
-					`${name}.ieasset`
+					targetFolder,
+					`${name}${template.extension}`
 				);
 
 				try {
@@ -2002,6 +2136,20 @@ async function activate(context) {
 		deleteAnimationLayerCommand,
 		deleteAnimationParameterCommand
 	);
+
+	await openPendingProjectExperience(context, gameOutput);
+}
+
+async function openPendingProjectExperience(context, gameOutput) {
+	const workspace = vscode.workspace.workspaceFolders?.[0];
+	const pending = context.globalState.get('infinite.pendingProjectWelcome');
+	if (!workspace || pending !== workspace.uri.toString()) return;
+	await context.globalState.update('infinite.pendingProjectWelcome', undefined);
+	await vscode.commands.executeCommand('workbench.view.extension.infinite-engine');
+	await vscode.commands.executeCommand('workbench.view.extension.infinite-properties');
+	await vscode.commands.executeCommand('infinite.properties.focus');
+	IEWelcomeEditor.open(workspace.name);
+	gameOutput.show(true);
 }
 
 
@@ -2124,6 +2272,54 @@ async function updateInfiniteProjectContext() {
 	}
 }
 
+async function resolveProjectLaunch(workspace, activeSceneUriString) {
+	const projectFile = vscode.Uri.joinPath(workspace.uri, 'Infinite.ieproject');
+	let project;
+
+	try {
+		const bytes = await vscode.workspace.fs.readFile(projectFile);
+		project = JSON.parse(Buffer.from(bytes).toString('utf8'));
+	} catch (error) {
+		throw new Error(
+			`Unable to read Infinite.ieproject: ${error instanceof Error ? error.message : String(error)}`
+		);
+	}
+
+	const projectRoot = workspace.uri.fsPath;
+	const resolveInsideProject = (value, label) => {
+		if (typeof value !== 'string' || !value.trim()) {
+			throw new Error(`Infinite.ieproject does not define ${label}.`);
+		}
+
+		const resolved = path.resolve(projectRoot, value);
+		const relative = path.relative(projectRoot, resolved);
+		if (relative.startsWith('..') || path.isAbsolute(relative)) {
+			throw new Error(`${label} must stay inside the project folder.`);
+		}
+		return resolved;
+	};
+
+	let sceneUri;
+	if (activeSceneUriString) {
+		const candidate = vscode.Uri.parse(activeSceneUriString);
+		if (
+			candidate.fsPath.toLowerCase().endsWith('.iescene') &&
+			vscode.workspace.getWorkspaceFolder(candidate)?.uri.toString() === workspace.uri.toString()
+		) {
+			sceneUri = candidate;
+		}
+	}
+
+	if (!sceneUri) {
+		sceneUri = vscode.Uri.file(resolveInsideProject(project.startScene, 'startScene'));
+	}
+
+	return {
+		sceneUri,
+		entryPath: resolveInsideProject(project.entry ?? 'main.js', 'entry')
+	};
+}
+
 
 async function initiateProject(
 	ieProject
@@ -2135,7 +2331,12 @@ async function initiateProject(
 
 
 
-async function refreshOutlinerFromActiveScene(context, outlinerProvider) {
+async function refreshOutlinerFromActiveScene(
+	context,
+	outlinerProvider,
+	propertiesProvider,
+	sceneEditor
+) {
 	const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
 	const input = tab?.input;
 
@@ -2185,6 +2386,16 @@ async function refreshOutlinerFromActiveScene(context, outlinerProvider) {
 		await scene.load();
 
 		outlinerProvider.setActors(scene.getActors());
+		const selection = sceneEditor?.getSelection(sceneUri);
+		const actor = selection?.actorId
+			? scene.getActor(selection.actorId)
+			: null;
+		if (actor) {
+			propertiesProvider?.setActor(actor, selection.componentId);
+			await outlinerProvider.revealActor(actor.id);
+		} else {
+			propertiesProvider?.clear();
+		}
 	} catch (error) {
 		console.error('Failed to load scene into Outliner:', error);
 		outlinerProvider.clear();

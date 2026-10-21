@@ -93,10 +93,7 @@ function decodePng(dataUri) {
 
 async function resolveTerrainTextures(graph, assetManager) {
     const textures = new Map();
-    const requiredPins = new Set((graph?.links ?? []).filter(link =>
-        (graph?.nodes ?? []).some(node => node.type === 'world.textureToHeightmap' &&
-            node.pins?.some(pin => pin.direction === 'input' && pin.name === 'Texture' && pin.id === link.to))
-    ).map(link => link.from));
+    const requiredPins = new Set((graph?.links ?? []).map(link => link.from));
     for (const node of graph?.nodes ?? []) {
         if (node.type !== 'world.textureAsset') continue;
         const outputPin = node.pins?.find(pin => pin.direction === 'output' && pin.name === 'Texture');
@@ -113,4 +110,29 @@ async function resolveTerrainTextures(graph, assetManager) {
     return textures;
 }
 
-module.exports = { decodePng, resolveTerrainTextures };
+async function resolveTerrainMaterials(graph, assetManager) {
+    const materials = new Map();
+    const connectedInputs = new Set((graph?.links ?? []).map(link => link.to));
+    for (const node of graph?.nodes ?? []) {
+        for (const pin of node.pins ?? []) {
+            if (
+                pin.direction !== 'input' ||
+                pin.type !== 'material' ||
+                connectedInputs.has(pin.id)
+            ) continue;
+            const id = typeof pin.value === 'string'
+                ? pin.value.trim()
+                : pin.value?.id;
+            if (!id || materials.has(id)) continue;
+            const material = await assetManager.resolveMaterialForScene({
+                type: 'material',
+                id
+            });
+            if (!material) throw new Error(`Material asset not found: ${id}`);
+            materials.set(id, material);
+        }
+    }
+    return materials;
+}
+
+module.exports = { decodePng, resolveTerrainTextures, resolveTerrainMaterials };
