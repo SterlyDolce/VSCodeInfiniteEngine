@@ -43,7 +43,11 @@ class IEMaterialEditor {
 
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [folder]
+            localResourceRoots: [
+                folder,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
+                vscode.Uri.joinPath(this.context.extensionUri, 'node_modules')
+            ]
         };
 
         const nonce = crypto.randomBytes(16).toString('hex');
@@ -52,8 +56,11 @@ class IEMaterialEditor {
             vscode.Uri.joinPath(folder, 'script.mjs')
         );
 
-        const style = panel.webview.asWebviewUri(
-            vscode.Uri.joinPath(folder, 'style.css')
+        const sharedStyle = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.css')
+        );
+        const sharedUi = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.js')
         );
 
         panel.webview.html = `<!DOCTYPE html>
@@ -66,22 +73,23 @@ class IEMaterialEditor {
             default-src 'none';
             style-src ${panel.webview.cspSource};
             script-src 'nonce-${nonce}' ${panel.webview.cspSource};
+            connect-src ${panel.webview.cspSource};
         ">
 
-    <link rel="stylesheet" href="${style}">
+    <link rel="stylesheet" href="${sharedStyle}">
 
     <title>Infinite Material Editor</title>
 </head>
-<body>
+<body data-ie-editor="graph-basic">
     <div id="workspace">
-        <div id="toolbar">
+        <div id="toolbar" role="toolbar" aria-label="Material graph controls">
             <span id="material-name">Material</span>
 
-            <div class="toolbar-actions">
-                <button id="compile">Compile</button>
-                <button id="fit">Fit</button>
-                <button id="zoom-out">−</button>
-                <button id="zoom-in">+</button>
+            <div id="actions" class="toolbar-actions">
+                <button id="compile" title="Compile" aria-label="Compile"><ion-icon name="hammer-outline"></ion-icon></button>
+                <button id="fit" title="Fit Graph" aria-label="Fit Graph"><ion-icon name="scan-outline"></ion-icon></button>
+                <button id="zoom-out" aria-label="Zoom out"><ion-icon name="remove"></ion-icon></button>
+                <button id="zoom-in" aria-label="Zoom in"><ion-icon name="add"></ion-icon></button>
             </div>
         </div>
 
@@ -92,6 +100,7 @@ class IEMaterialEditor {
         <div id="status">Loading Material...</div>
     </div>
 
+    <script type="module" nonce="${nonce}" src="${sharedUi}"></script>
     <script type="module"
         nonce="${nonce}"
         src="${script}">

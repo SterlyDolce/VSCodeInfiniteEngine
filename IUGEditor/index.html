@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}}; script-src 'nonce-{{NONCE}}' {{CSP_SOURCE}}; img-src {{CSP_SOURCE}} data: blob:; connect-src {{CSP_SOURCE}};">
+    <link rel="stylesheet" href="{{SHARED_STYLE_URI}}">
+    <title>IUG Editor</title>
+</head>
+<body data-ie-editor="ui-designer">
+    <div id="app">
+        <header id="toolbar" class="toolbar" role="toolbar" aria-label="User interface controls">
+            <div id="actions">
+                <button id="toggle-palette" class="active" title="Toggle Widgets" aria-label="Toggle Widgets" aria-pressed="true"><ion-icon name="grid-outline"></ion-icon></button>
+            </div>
+            <span id="graph-title">UI Editor</span>
+            <div id="actions" class="tool-group">
+                <button id="undo" title="Undo (Ctrl/Cmd+Z)" aria-label="Undo" disabled><ion-icon name="arrow-undo"></ion-icon></button>
+                <button id="redo" title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo" disabled><ion-icon name="arrow-redo"></ion-icon></button>
+                <span class="divider"></span>
+                <label class="zoom">Zoom <input id="zoom" type="range" min="25" max="150" value="75"><span id="zoom-value">75%</span></label>
+                <button id="fit" title="Fit Canvas" aria-label="Fit Canvas"><ion-icon name="scan-outline"></ion-icon></button>
+                <button id="save" class="primary" title="Save" aria-label="Save" disabled><ion-icon name="save-outline"></ion-icon></button>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <section id="stage" class="stage">
+            <aside class="palette floating-palette">
+                <div class="panel-title"><span>WIDGETS</span><button id="close-palette" title="Close Widgets" aria-label="Close Widgets"><ion-icon name="close"></ion-icon></button></div>
+                <div id="widget-list"></div>
+                <div class="hint">Drag a widget onto the canvas</div>
+            </aside>
+                <canvas id="canvas" tabindex="0"></canvas>
+            </section>
+        </main>
+        <div id="status">Ready</div>
+    </div>
+    <script nonce="{{NONCE}}" type="module" src="{{SHARED_UI_URI}}"></script>
+    <script nonce="{{NONCE}}" type="module" src="{{SCRIPT_URI}}"></script>
+</body>
+</html>

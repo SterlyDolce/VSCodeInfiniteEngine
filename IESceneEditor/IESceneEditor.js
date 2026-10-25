@@ -28,6 +28,7 @@ class IESceneEditor {
 		this.playStartRequests = new Map();
 		this.sceneChangeHandler = undefined;
 		this.runtimeErrorHandler = undefined;
+		this.runtimeTraceHandler = undefined;
 		this.panelDisposeHandler = undefined;
 		this.assetDrag = null;
 	}
@@ -194,6 +195,10 @@ class IESceneEditor {
 				vscode.Uri.joinPath(
 					this.context.extensionUri,
 					'images'
+				),
+				vscode.Uri.joinPath(
+					this.context.extensionUri,
+					'Shared'
 				)
 			]
 		};
@@ -208,9 +213,16 @@ class IESceneEditor {
 			'index.html'
 		);
 
-		const stylePath = vscode.Uri.joinPath(
-			editorPath,
-			'style.css'
+		const sharedStylePath = vscode.Uri.joinPath(
+			this.context.extensionUri,
+			'Shared',
+			'ui.css'
+		);
+
+		const sharedUiPath = vscode.Uri.joinPath(
+			this.context.extensionUri,
+			'Shared',
+			'ui.js'
 		);
 
 		const scriptPath = vscode.Uri.joinPath(
@@ -260,15 +272,6 @@ class IESceneEditor {
 			'images',
 			'checkers.png'
 		);
-		const editorIconUri = name => webviewPanel.webview.asWebviewUri(
-			vscode.Uri.joinPath(
-				this.context.extensionUri,
-				'images',
-				'editor-icons',
-				`${name}.svg`
-			)
-		).toString();
-
 		const cameraModelUri =
 			webviewPanel.webview.asWebviewUri(
 				cameraModelPath
@@ -284,8 +287,11 @@ class IESceneEditor {
 				checkerTexturePath
 			);
 
-		const styleUri =
-			webviewPanel.webview.asWebviewUri(stylePath);
+		const sharedStyleUri =
+			webviewPanel.webview.asWebviewUri(sharedStylePath);
+
+		const sharedUiUri =
+			webviewPanel.webview.asWebviewUri(sharedUiPath);
 
 		const scriptUri =
 			webviewPanel.webview.asWebviewUri(scriptPath);
@@ -306,8 +312,12 @@ class IESceneEditor {
 
 		html = html
 			.replace(
-				'{{STYLE_URI}}',
-				styleUri.toString()
+				'{{SHARED_STYLE_URI}}',
+				sharedStyleUri.toString()
+			)
+			.replace(
+				'{{SHARED_UI_URI}}',
+				sharedUiUri.toString()
 			)
 			.replace(
 				'{{SCRIPT_URI}}',
@@ -336,18 +346,6 @@ class IESceneEditor {
 			.replace(
 				'{{CHECKER_TEXTURE_URI}}',
 				checkerTextureUri.toString()
-			)
-			.replace(
-				'{{MOVE_ICON_URI}}',
-				editorIconUri('move')
-			)
-			.replace(
-				'{{ROTATE_ICON_URI}}',
-				editorIconUri('rotate')
-			)
-			.replace(
-				'{{SCALE_ICON_URI}}',
-				editorIconUri('scale')
 			);
 
 		webviewPanel.webview.html = html;
@@ -404,6 +402,9 @@ class IESceneEditor {
 						break;
 					case 'runtimeError':
 						this.runtimeErrorHandler?.(message.error ?? {});
+						break;
+					case 'scriptTrace':
+						this.runtimeTraceHandler?.(message.trace ?? {});
 						break;
 					case 'playStarted':
 					case 'playStartFailed':
@@ -1056,6 +1057,7 @@ class IESceneEditor {
 		const skeletons = assetManager.getAssets('skeleton');
 		const animations = assetManager.getAssets('animation');
 		const animationStates = assetManager.getAssets('animationState');
+		const userInterfaces = assetManager.getAssets('ui');
 
 		for (const entry of skeletons) {
 			const asset = await assetManager.resolve({
@@ -1127,6 +1129,25 @@ class IESceneEditor {
 			});
 		}
 
+		for (const entry of userInterfaces) {
+			const asset = await assetManager.resolve({
+				type: 'ui',
+				id: entry.id
+			});
+
+			if (!asset) {
+				console.warn('[IE] Could not resolve User Interface:', entry.id);
+				continue;
+			}
+
+			runtimeAssets.push({
+				id: asset.id,
+				name: asset.name,
+				type: 'ui',
+				data: asset.data
+			});
+		}
+
 		return {
 			...sceneData,
 			actors,
@@ -1144,6 +1165,10 @@ class IESceneEditor {
 
 	setRuntimeErrorHandler(handler) {
 		this.runtimeErrorHandler = handler;
+	}
+
+	setRuntimeTraceHandler(handler) {
+		this.runtimeTraceHandler = handler;
 	}
 
 	setPanelDisposeHandler(handler) {
@@ -1366,6 +1391,12 @@ class IESceneEditor {
 		if (await panel.webview.postMessage({
 			type: 'continuePlay'
 		})) this.sceneLifecycles.set(key, 'playing');
+	}
+
+	async stepPlay(sceneUri) {
+		const panel = this.getPanel(sceneUri);
+		if (!panel) return;
+		await panel.webview.postMessage({ type: 'stepPlay' });
 	}
 
 	async stopPlay(sceneUri) {

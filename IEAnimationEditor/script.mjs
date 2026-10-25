@@ -82,7 +82,8 @@ function formatTime(value) {
 }
 
 function updatePlaybackUI() {
-    $('play').textContent = playing ? '❚❚' : '▶';
+    const playIcon = $('play').querySelector('ion-icon');
+    if (playIcon) playIcon.name = playing ? 'pause' : 'play';
     $('time-label').textContent =
         `${formatTime(currentTime)} / ${formatTime(duration())}`;
 

@@ -73,6 +73,7 @@ export class IEScriptRuntime {
         this.pins = new Map();
         this.incoming = new Map();
         this.outgoing = new Map();
+        this.state = new Map();
         this.stopped = false;
         this.diagnostics = options.diagnostics ?? {};
 
@@ -191,6 +192,7 @@ export class IEScriptRuntime {
     }
 
     createContext(node, frame, stack = new Set(), output = null) {
+        if (!this.state.has(node.id)) this.state.set(node.id, {});
         return {
             node,
             output,
@@ -200,6 +202,7 @@ export class IEScriptRuntime {
             keyboard: this.keyboard,
             mouse: this.mouse,
             deltaTime: frame.deltaTime,
+            state: this.state.get(node.id),
             getReferenceResult: nodeId =>
                 frame.referenceResults?.get(nodeId) ?? null,
 
@@ -301,9 +304,18 @@ export class IEScriptRuntime {
         stack.add(node.id);
 
         try {
-            return definition.evaluate(
+            const value = definition.evaluate(
                 this.createContext(node, frame, stack, output)
             );
+            this.engine?.traceScript?.({
+                ...this.diagnostics,
+                nodeId: node.id,
+                nodeType: node.type,
+                phase: 'evaluate',
+                output,
+                value
+            });
+            return value;
         } catch (error) {
             throw this.annotateError(error, node, 'evaluate');
         } finally {
@@ -324,6 +336,14 @@ export class IEScriptRuntime {
             frame.results ??= new Map();
             frame.results.set(node.id, outputs);
 
+            this.engine?.traceScript?.({
+                ...this.diagnostics,
+                nodeId: node.id,
+                nodeType: node.type,
+                phase: 'execute',
+                breakpoint: node.breakpoint === true
+            });
+
             return 'then';
         }
 
@@ -334,7 +354,15 @@ export class IEScriptRuntime {
         }
 
         try {
-            return definition.execute(this.createContext(node, frame));
+            const result = definition.execute(this.createContext(node, frame));
+            this.engine?.traceScript?.({
+                ...this.diagnostics,
+                nodeId: node.id,
+                nodeType: node.type,
+                phase: 'execute',
+                breakpoint: node.breakpoint === true
+            });
+            return result;
         } catch (error) {
             throw this.annotateError(error, node, 'execute');
         }

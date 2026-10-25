@@ -2,7 +2,7 @@
   "name": "infinite-engine",
   "displayName": "Infinite Engine",
   "description": "Infinite Engine — a powerful, extensible 3D game engine and visual scripting environment built directly into Visual Studio Code.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "sterlyd",
   "icon": "images/icon.png",
   "license": "MIT",
@@ -496,6 +496,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
+    "ionicons": "^8.1.0",
     "three": "^0.186.1"
   },
   "devDependencies": {

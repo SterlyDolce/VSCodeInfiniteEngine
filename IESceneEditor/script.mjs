@@ -28,6 +28,7 @@ import { registeranimationStateAssets } from './Nodes/IEAnimationStateNodes.mjs'
 import { nodeRegistry } from './IENodeRegistry.mjs';
 import { IEAnimationRuntime } from './IEAnimationRuntime.mjs';
 import { IEPhysicsRuntime } from './IEPhysicsRuntime.mjs';
+import { IUGRuntime } from './IUGRuntime.mjs';
 
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map();
@@ -81,7 +82,7 @@ const viewport = document.getElementById('viewport');
 const previewViewport = document.getElementById('preview-viewport');
 
 const viewGizmoViewport = document.getElementById('view-gizmo');
-const viewportToolbar = document.getElementById('viewport-toolbar');
+const viewportToolbar = document.getElementById('toolbar');
 const viewportView = document.getElementById('viewport-view');
 const transformSpaceButton = document.getElementById('transform-space');
 const translationSnapButton = document.getElementById('translation-snap');
@@ -647,8 +648,26 @@ function createRuntimeAnimationClip(reference) {
 	);
 }
 const animationEndListeners = new Map();
+const iugRuntime = new IUGRuntime(document.getElementById('gameplay-ui'));
+const scriptTraceTimes = new Map();
 
 const engine = {
+	traceScript(trace) {
+		const now = performance.now();
+		const key = `${trace.scriptId}:${trace.nodeId}:${trace.output ?? ''}`;
+		if (!trace.breakpoint && now - (scriptTraceTimes.get(key) ?? 0) < 60) return;
+		scriptTraceTimes.set(key, now);
+		let value = trace.value;
+		if (value && typeof value === 'object') {
+			try { value = JSON.parse(JSON.stringify(value)); } catch { value = String(value); }
+		}
+		postSceneUpdate('scriptTrace', { trace: { ...trace, value, timestamp: Date.now() } });
+		if (trace.breakpoint) {
+			isPaused = true;
+			clearGameplayInput();
+			this.showMouse();
+		}
+	},
 	lockMouse() {
 		if (!isPlaying || document.pointerLockElement === renderer.domElement) {
 			return;
@@ -685,6 +704,18 @@ const engine = {
 		postSceneUpdate('scriptPrint', {
 			values: values.map(formatPrintValue),
 		});
+	},
+
+	showUI(reference) {
+		return iugRuntime.show(reference);
+	},
+
+	hideUI(reference) {
+		iugRuntime.hide(reference);
+	},
+
+	setUIText(reference, widgetName, value) {
+		return iugRuntime.setText(reference, String(widgetName ?? ''), value);
 	},
 
 	getMesh(component) {
@@ -1668,6 +1699,10 @@ window.addEventListener('message', async (event) => {
 			continuePlay();
 			break;
 
+		case 'stepPlay':
+			stepPlay();
+			break;
+
 		case 'stopPlay':
 			stopPlay();
 			break;
@@ -2255,13 +2290,7 @@ function restoreEditorState(state) {
 		}
 		if (['world', 'local'].includes(transform.space)) {
 			transformControls.setSpace(transform.space);
-			transformSpaceButton.textContent = transform.space === 'world'
-				? 'World'
-				: 'Local';
-			transformSpaceButton.classList.toggle(
-				'active',
-				transform.space === 'local'
-			);
+			updateTransformSpaceButton(transform.space);
 		}
 
 		const translationSnap = Number(transform.translationSnap);
@@ -3008,6 +3037,7 @@ async function beginPlay(sceneData) {
 	animationMixers.clear();
 
 	prepareRuntimeMeshAssets(sceneData);
+	iugRuntime.load(sceneData.runtimeAssets);
 
 	// Register generated nodes before the scripts
 	// are instantiated or evaluated.
@@ -3077,6 +3107,18 @@ function continuePlay() {
 	isPaused = false;
 }
 
+function stepPlay() {
+	if (!isPlaying || !isPaused) return;
+	for (const runtime of scriptRuntimes) {
+		try {
+			runtime.update(1 / 60);
+		} catch (error) {
+			reportRuntimeError(error, error.ieRuntimeContext ?? { phase: 'VisualScript.step' });
+			break;
+		}
+	}
+}
+
 function stopPlay() {
 	disposeGameplayRuntime();
 }
@@ -3111,6 +3153,7 @@ function disposeGameplayRuntime() {
 
 	clearRoot(gameplayActorRoot);
 	runtimeMeshAssets.clear();
+	iugRuntime.clear();
 
 	gameplayCamera = undefined;
 
@@ -3984,6 +4027,7 @@ function resize() {
 	}
 
 	renderer.setSize(width, height, false);
+	iugRuntime.resize(width, height);
 
 	composer.setSize(width, height);
 
@@ -4067,10 +4111,18 @@ for (const button of viewportToolbar.querySelectorAll('.transform-mode')) {
 transformSpaceButton?.addEventListener('click', () => {
 	const space = transformControls.space === 'world' ? 'local' : 'world';
 	transformControls.setSpace(space);
-	transformSpaceButton.textContent = space === 'world' ? 'World' : 'Local';
-	transformSpaceButton.classList.toggle('active', space === 'local');
+	updateTransformSpaceButton(space);
 	scheduleEditorStateSave();
 });
+
+function updateTransformSpaceButton(space) {
+	const label = space === 'world' ? 'World' : 'Local';
+	const icon = transformSpaceButton.querySelector('ion-icon');
+	if (icon) icon.name = space === 'world' ? 'globe-outline' : 'cube-outline';
+	transformSpaceButton.title = `Transform space: ${label}`;
+	transformSpaceButton.setAttribute('aria-label', `Transform space: ${label}`);
+	transformSpaceButton.classList.toggle('active', space === 'local');
+}
 
 function updateTranslationSnap() {
 	const enabled = translationSnapButton.classList.contains('active');

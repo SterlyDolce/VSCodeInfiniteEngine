@@ -17,12 +17,16 @@ class IETextureEditor {
 
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [folder]
+            localResourceRoots: [
+                folder,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
+                vscode.Uri.joinPath(this.context.extensionUri, 'node_modules')
+            ]
         };
 
-        const resource = filename =>
+        const resource = (...parts) =>
             panel.webview.asWebviewUri(
-                vscode.Uri.joinPath(folder, filename)
+                vscode.Uri.joinPath(this.context.extensionUri, ...parts)
             ).toString();
 
         const nonce = crypto.randomBytes(16).toString('hex');
@@ -41,19 +45,20 @@ class IETextureEditor {
             script-src 'nonce-${nonce}' ${panel.webview.cspSource};
             style-src ${panel.webview.cspSource};
             img-src data:;
+            connect-src ${panel.webview.cspSource};
         ">
 
-    <link rel="stylesheet" href="${resource('style.css')}">
+    <link rel="stylesheet" href="${resource('Shared', 'ui.css')}">
 
     <title>Infinite Texture Editor</title>
 </head>
-<body>
+<body data-ie-editor="texture">
     <div id="workspace">
 
-        <div id="toolbar">
+        <div id="toolbar" role="toolbar" aria-label="Texture controls">
             <span id="texture-name">Texture</span>
 
-            <div class="toolbar-actions">
+            <div id="actions" class="toolbar-actions">
                 <select id="channel" title="Preview channels">
                     <option value="rgba">RGBA</option>
                     <option value="rgb">RGB</option>
@@ -63,14 +68,12 @@ class IETextureEditor {
                     <option value="a">Alpha</option>
                 </select>
 
-                <button id="checker" class="active">
-                    Checker
-                </button>
+                <button id="checker" class="active" title="Toggle Checkerboard" aria-label="Toggle Checkerboard"><ion-icon name="grid-outline"></ion-icon></button>
 
-                <button id="fit">Fit</button>
+                <button id="fit" title="Fit Texture" aria-label="Fit Texture"><ion-icon name="scan-outline"></ion-icon></button>
                 <button id="actual">1:1</button>
-                <button id="zoom-out">−</button>
-                <button id="zoom-in">+</button>
+                <button id="zoom-out" aria-label="Zoom out"><ion-icon name="remove"></ion-icon></button>
+                <button id="zoom-in" aria-label="Zoom in"><ion-icon name="add"></ion-icon></button>
             </div>
         </div>
 
@@ -88,10 +91,11 @@ class IETextureEditor {
 
     </div>
 
+    <script type="module" nonce="${nonce}" src="${resource('Shared', 'ui.js')}"></script>
     <script
         type="module"
         nonce="${nonce}"
-        src="${resource('script.mjs')}">
+        src="${resource('IETextureEditor', 'script.mjs')}">
     </script>
 </body>
 </html>`;

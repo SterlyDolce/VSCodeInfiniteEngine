@@ -11,6 +11,7 @@ class IEOutlinerProvider {
         this.actorAsset = null;
         this.animationState = null;
         this.skeleton = null;
+        this.uiAsset = null;
         this.treeView = undefined;
 
         this._onDidChangeTreeData = new vscode.EventEmitter();
@@ -385,12 +386,35 @@ class IEOutlinerProvider {
         this.refresh();
     }
 
+    setUIAsset(asset, uri, selectedElementId = null) {
+        this.mode = 'ui';
+        this.actors = [];
+        this.script = null;
+        this.actorAsset = null;
+        this.animationState = null;
+        this.skeleton = null;
+        this.uiAsset = {
+            uri: uri.toString(),
+            assetId: asset.id,
+            name: asset.name ?? 'User Interface',
+            elements: asset.data?.elements ?? [],
+            selectedElementId,
+            root: {
+                __uiRoot: true,
+                id: 'canvas',
+                name: asset.name ?? 'User Interface'
+            }
+        };
+        this.refresh();
+    }
+
     clear() {
         this.mode = 'none';
         this.actors = [];
         this.script = null;
         this.actorAsset = null;
         this.skeleton = null;
+        this.uiAsset = null;
         this.refresh();
     }
 
@@ -528,6 +552,47 @@ class IEOutlinerProvider {
 
 
     getTreeItem(element) {
+
+        if (this.mode === 'ui') {
+            if (element.__uiRoot) {
+                const item = new vscode.TreeItem(
+                    element.name,
+                    vscode.TreeItemCollapsibleState.Expanded
+                );
+                item.id = `ui:${this.uiAsset.uri}:canvas`;
+                item.description = 'Canvas';
+                item.iconPath = new vscode.ThemeIcon('layout');
+                item.contextValue = 'infiniteUICanvas';
+                item.command = {
+                    command: 'infinite.selectUIElement',
+                    title: 'Select UI Canvas',
+                    arguments: [{ uri: this.uiAsset.uri, elementId: null }]
+                };
+                return item;
+            }
+
+            const item = new vscode.TreeItem(
+                element.name || 'Unnamed Widget',
+                vscode.TreeItemCollapsibleState.None
+            );
+            item.id = `ui:${this.uiAsset.uri}:${element.id}`;
+            item.description = element.type;
+            item.iconPath = new vscode.ThemeIcon({
+                text: 'symbol-string',
+                button: 'symbol-event',
+                image: 'file-media',
+                input: 'edit',
+                panel: 'layout-panel',
+                checkbox: 'checklist'
+            }[element.type] ?? 'symbol-misc');
+            item.contextValue = 'infiniteUIElement';
+            item.command = {
+                command: 'infinite.selectUIElement',
+                title: 'Select UI Element',
+                arguments: [{ uri: this.uiAsset.uri, elementId: element.id }]
+            };
+            return item;
+        }
 
         if (this.mode === 'animationState') {
             return this.getAnimationStateTreeItem(element);
@@ -710,6 +775,13 @@ class IEOutlinerProvider {
 
     getChildren(element) {
 
+        if (this.mode === 'ui') {
+            if (!this.uiAsset) return [];
+            if (!element) return [this.uiAsset.root];
+            if (element.__uiRoot) return [...this.uiAsset.elements].reverse();
+            return [];
+        }
+
         if (this.mode === 'skeleton') {
             if (!this.skeleton) return [];
             const parentId = element?.id ?? null;
@@ -848,6 +920,11 @@ class IEOutlinerProvider {
     }
 
     getParent(element) {
+
+        if (this.mode === 'ui') {
+            if (element.__uiRoot) return undefined;
+            return this.uiAsset?.root;
+        }
 
         if (this.mode === 'skeleton') {
             if (!element.parentId) return undefined;

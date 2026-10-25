@@ -27,6 +27,7 @@ class IESkeletonEditor {
             enableScripts: true,
             localResourceRoots: [
                 root,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
                 vscode.Uri.joinPath(this.context.extensionUri, 'node_modules')
             ]
         };
@@ -36,7 +37,8 @@ class IESkeletonEditor {
             'utf8'
         );
         const replacements = {
-            '{{STYLE_URI}}': resource('IESkeletonEditor', 'style.css'),
+            '{{SHARED_STYLE_URI}}': resource('Shared', 'ui.css'),
+            '{{SHARED_UI_URI}}': resource('Shared', 'ui.js'),
             '{{SCRIPT_URI}}': resource('IESkeletonEditor', 'script.mjs'),
             '{{THREE_URI}}': resource(
                 'node_modules', 'three', 'build', 'three.module.js'

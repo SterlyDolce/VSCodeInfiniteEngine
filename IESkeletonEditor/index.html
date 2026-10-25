@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}}; script-src 'nonce-{{NONCE}}' {{CSP_SOURCE}};">
-    <link rel="stylesheet" href="{{STYLE_URI}}">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}}; script-src 'nonce-{{NONCE}}' {{CSP_SOURCE}}; connect-src {{CSP_SOURCE}};">
+    <link rel="stylesheet" href="{{SHARED_STYLE_URI}}">
     <script type="importmap" nonce="{{NONCE}}">
     {"imports":{"three":"{{THREE_URI}}","three/addons/":"{{THREE_ADDONS_URI}}"}}
     </script>
     <title>Infinite Skeleton Editor</title>
 </head>
-<body>
+<body data-ie-editor="skeleton">
     <div id="app">
-        <header>
+        <header id="toolbar" role="toolbar" aria-label="Skeleton controls">
             <div><strong id="asset-name">Skeleton</strong><span id="summary">Loading…</span></div>
-            <nav>
-                <button id="grid">Grid</button>
-                <button id="fit">Fit</button>
-                <button id="reload">Reload</button>
-                <button id="save" disabled>Save Changes</button>
+            <nav id="actions">
+                <button id="grid" title="Grid" aria-label="Grid"><ion-icon name="grid-outline"></ion-icon></button>
+                <button id="fit" title="Fit Skeleton" aria-label="Fit Skeleton"><ion-icon name="scan-outline"></ion-icon></button>
+                <button id="reload" title="Reload" aria-label="Reload"><ion-icon name="refresh-outline"></ion-icon></button>
+                <button id="save" title="Save Changes" aria-label="Save Changes" disabled><ion-icon name="save-outline"></ion-icon></button>
             </nav>
         </header>
         <main>
@@ -43,6 +43,7 @@
         </main>
         <footer id="status">Loading skeleton…</footer>
     </div>
+    <script nonce="{{NONCE}}" type="module" src="{{SHARED_UI_URI}}"></script>
     <script nonce="{{NONCE}}" type="module" src="{{SCRIPT_URI}}"></script>
 </body>
 </html>

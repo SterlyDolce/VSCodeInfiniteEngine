@@ -25,6 +25,8 @@ class IEGeometryEditor {
             enableScripts: true,
             localResourceRoots: [
                 folder,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
+                vscode.Uri.joinPath(this.context.extensionUri, 'node_modules'),
                 threeFolder
             ]
         };
@@ -35,7 +37,12 @@ class IEGeometryEditor {
             ).toString();
 
         const scriptUri = uri(folder, 'script.mjs');
-        const styleUri = uri(folder, 'style.css');
+        const sharedStyleUri = uri(
+            this.context.extensionUri, 'Shared', 'ui.css'
+        );
+        const sharedUiUri = uri(
+            this.context.extensionUri, 'Shared', 'ui.js'
+        );
 
         const threeUri = uri(
             threeFolder,
@@ -66,7 +73,7 @@ class IEGeometryEditor {
             script-src 'nonce-${nonce}' ${panel.webview.cspSource};
         ">
 
-    <link rel="stylesheet" href="${styleUri}">
+    <link rel="stylesheet" href="${sharedStyleUri}">
 
     <script type="importmap" nonce="${nonce}">
     {
@@ -80,18 +87,18 @@ class IEGeometryEditor {
     <title>Infinite Geometry Editor</title>
 </head>
 
-<body>
+<body data-ie-editor="geometry">
     <div id="workspace">
 
         <div id="viewport"></div>
 
-        <div id="toolbar">
+        <div id="toolbar" role="toolbar" aria-label="Geometry controls">
             <span id="geometry-name">Geometry</span>
 
-            <div class="toolbar-actions">
-                <button id="wireframe">Wireframe</button>
-                <button id="grid">Grid</button>
-                <button id="fit">Fit</button>
+            <div id="actions" class="toolbar-actions">
+                <button id="wireframe" title="Wireframe" aria-label="Wireframe"><ion-icon name="cube-outline"></ion-icon></button>
+                <button id="grid" title="Grid" aria-label="Grid"><ion-icon name="grid-outline"></ion-icon></button>
+                <button id="fit" title="Fit Geometry" aria-label="Fit Geometry"><ion-icon name="scan-outline"></ion-icon></button>
             </div>
         </div>
 
@@ -101,6 +108,7 @@ class IEGeometryEditor {
 
     </div>
 
+    <script type="module" nonce="${nonce}" src="${sharedUiUri}"></script>
     <script
         type="module"
         nonce="${nonce}"

@@ -36,9 +36,20 @@ class IEActorAssetEditor {
             'node_modules'
         );
 
+        const images = vscode.Uri.joinPath(
+            this.context.extensionUri,
+            'images'
+        );
+
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [editor, models, modules]
+            localResourceRoots: [
+                editor,
+                models,
+                modules,
+                images,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared')
+            ]
         };
 
         const resource = (...parts) =>
@@ -52,7 +63,8 @@ class IEActorAssetEditor {
         );
 
         const replacements = {
-            '{{STYLE_URI}}': resource('IESceneEditor', 'style.css'),
+            '{{SHARED_STYLE_URI}}': resource('Shared', 'ui.css'),
+            '{{SHARED_UI_URI}}': resource('Shared', 'ui.js'),
             '{{SCRIPT_URI}}': resource('IESceneEditor', 'script.mjs'),
             '{{THREE_URI}}': resource(
                 'node_modules', 'three', 'build', 'three.module.js'
@@ -62,6 +74,14 @@ class IEActorAssetEditor {
             ) + '/',
             '{{CAMERA_MODEL_URI}}': resource('Models', 'Camera.glb'),
             '{{VIEW_GIZMO_MODEL_URI}}': resource('Models', 'ViewGizmo.glb'),
+            '{{CHECKER_TEXTURE_URI}}': resource('images', 'checkers.png'),
+            '{{RAPIER_URI}}': resource(
+                'node_modules',
+                '@dimforge',
+                'rapier3d-compat',
+                'dist',
+                'rapier.mjs'
+            ),
             '{{CSP_SOURCE}}': panel.webview.cspSource,
             '{{NONCE}}': crypto.randomBytes(16).toString('base64')
         };
@@ -69,7 +89,10 @@ class IEActorAssetEditor {
         for (const [token, value] of Object.entries(replacements)) {
             html = html.replaceAll(token, value);
         }
-
+        html = html.replace(
+            '<span id="viewport-title">Viewport</span>',
+            '<span id="viewport-title">Actor Preview</span>'
+        );
         panel.webview.html = html;
 
         let isReady = false;

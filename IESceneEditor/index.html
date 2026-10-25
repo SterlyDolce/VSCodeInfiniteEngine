@@ -6,13 +6,15 @@
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <link rel="stylesheet" href="{{STYLE_URI}}">
+    <link rel="stylesheet" href="{{SHARED_STYLE_URI}}">
 </head>
 
-<body>
+<body data-ie-editor="scene-viewport">
     <div id="viewport"></div>
+    <canvas id="gameplay-ui" aria-label="Gameplay user interface"></canvas>
     <div id="preview-viewport"></div>
-    <div id="viewport-toolbar" role="toolbar" aria-label="Viewport controls">
+    <div id="toolbar" role="toolbar" aria-label="Viewport controls">
+        <div id="actions">
         <select id="viewport-view" title="Camera view" aria-label="Camera view">
             <option value="perspective">Perspective</option>
             <option value="top">Top</option>
@@ -22,13 +24,15 @@
             <option value="left">Left</option>
             <option value="right">Right</option>
         </select>
+        </div>
+        <span id="viewport-title">Viewport</span>
+        <div id="actions">
+        <button class="transform-mode active" data-mode="translate" title="Move (W)" aria-label="Move"><ion-icon name="move-outline"></ion-icon></button>
+        <button class="transform-mode" data-mode="rotate" title="Rotate (E)" aria-label="Rotate"><ion-icon name="sync-outline"></ion-icon></button>
+        <button class="transform-mode" data-mode="scale" title="Scale (R)" aria-label="Scale"><ion-icon name="resize-outline"></ion-icon></button>
+        <button id="transform-space" title="Transform space: World" aria-label="Transform space: World"><ion-icon name="globe-outline"></ion-icon></button>
         <span class="toolbar-separator"></span>
-        <button class="transform-mode active" data-mode="translate" title="Move (W)" aria-label="Move"><span class="game-icon" style="--game-icon: url('{{MOVE_ICON_URI}}')"></span></button>
-        <button class="transform-mode" data-mode="rotate" title="Rotate (E)" aria-label="Rotate"><span class="game-icon" style="--game-icon: url('{{ROTATE_ICON_URI}}')"></span></button>
-        <button class="transform-mode" data-mode="scale" title="Scale (R)" aria-label="Scale"><span class="game-icon" style="--game-icon: url('{{SCALE_ICON_URI}}')"></span></button>
-        <button id="transform-space" title="Toggle world/local transform space">World</button>
-        <span class="toolbar-separator"></span>
-        <button id="translation-snap" class="toggle" title="Toggle position snapping">⌗</button>
+        <button id="translation-snap" class="toggle" title="Toggle position snapping" aria-label="Toggle position snapping"><ion-icon name="grid-outline"></ion-icon></button>
         <select id="translation-snap-value" title="Position snap size" aria-label="Position snap size">
             <option value="0.1">0.1</option>
             <option value="0.5">0.5</option>
@@ -36,7 +40,7 @@
             <option value="5">5</option>
             <option value="10">10</option>
         </select>
-        <button id="rotation-snap" class="toggle" title="Toggle rotation snapping">∠</button>
+        <button id="rotation-snap" class="toggle" title="Toggle rotation snapping" aria-label="Toggle rotation snapping"><ion-icon name="compass-outline"></ion-icon></button>
         <select id="rotation-snap-value" title="Rotation snap angle" aria-label="Rotation snap angle">
             <option value="5">5°</option>
             <option value="10">10°</option>
@@ -45,7 +49,7 @@
             <option value="45">45°</option>
         </select>
         <span class="toolbar-separator"></span>
-        <label class="speed-control" title="Fly camera speed">Speed
+        <label class="speed-control" title="Fly camera speed"><ion-icon name="speedometer-outline"></ion-icon>
             <select id="camera-speed" aria-label="Fly camera speed">
                 <option value="2">2</option>
                 <option value="4">4</option>
@@ -55,6 +59,7 @@
                 <option value="64">64</option>
             </select>
         </label>
+        </div>
     </div>
     <div id="view-gizmo"></div>
 
@@ -77,6 +82,7 @@
         }
     </script>
 
+    <script type="module" src="{{SHARED_UI_URI}}"></script>
     <script type="module" src="{{SCRIPT_URI}}"></script>
 </body>
 

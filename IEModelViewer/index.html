@@ -10,16 +10,16 @@
         content="default-src 'none'; img-src {{cspSource}} data: blob:; style-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; connect-src {{cspSource}} blob:; worker-src blob:;">
 
 
-    <link rel="stylesheet" href="{{styleUri}}">
+    <link rel="stylesheet" href="{{sharedStyleUri}}">
     <title>Infinite Model Viewer</title>
 </head>
 
-<body>
-    <header class="toolbar">
+<body data-ie-editor="model-preview">
+    <header id="toolbar" class="toolbar" role="toolbar" aria-label="Model controls">
         <span id="model-name">Model Viewer</span>
-        <div class="asset-actions">
+        <div id="actions" class="asset-actions">
             <input id="asset-name" aria-label="Actor asset name" placeholder="Actor name">
-            <button id="create-assets" disabled>Create Selected IEAssets</button>
+            <button id="create-assets" title="Create Selected IEAssets" aria-label="Create Selected IEAssets" disabled><ion-icon name="cube-outline"></ion-icon></button>
         </div>
     </header>
 
@@ -45,13 +45,9 @@
             <option value="">No animations</option>
         </select>
 
-        <button id="animation-play" disabled title="Play animation">
-            ▶
-        </button>
+        <button id="animation-play" disabled title="Play animation" aria-label="Play animation"><ion-icon name="play"></ion-icon></button>
 
-        <button id="animation-stop" disabled title="Stop animation">
-            ■
-        </button>
+        <button id="animation-stop" disabled title="Stop animation" aria-label="Stop animation"><ion-icon name="stop"></ion-icon></button>
 
         <span id="animation-current-time">0:00</span>
 
@@ -72,6 +68,7 @@
 }
 </script>
 
+    <script type="module" src="{{sharedUiUri}}"></script>
     <script type="module" src="{{scriptUri}}"></script>
 </body>
 

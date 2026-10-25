@@ -132,6 +132,7 @@ class IEVisualScriptEditor {
                         type: 'actorAssets',
                         assets: []
                     });
+                    await panel.webview.postMessage({ type: 'assetIndex', assets: [] });
                     return;
                 }
 
@@ -161,6 +162,10 @@ class IEVisualScriptEditor {
                     type: 'actorAssets',
                     assets: actorAssets
                 });
+                await panel.webview.postMessage({
+                    type: 'assetIndex',
+                    assets: manager.getAssets()
+                });
             } catch (error) {
                 console.error('[IE] Failed to load Actor Assets:', error);
 
@@ -168,6 +173,7 @@ class IEVisualScriptEditor {
                     type: 'actorAssets',
                     assets: []
                 });
+                await panel.webview.postMessage({ type: 'assetIndex', assets: [] });
             }
         };
 
@@ -182,6 +188,8 @@ class IEVisualScriptEditor {
             enableScripts: true,
             localResourceRoots: [
                 folder,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
+                vscode.Uri.joinPath(this.context.extensionUri, 'node_modules'),
                 ...(editorWorkspace ? [editorWorkspace.uri] : [])
             ]
         };
@@ -195,8 +203,11 @@ class IEVisualScriptEditor {
         const js = panel.webview.asWebviewUri(
             vscode.Uri.joinPath(folder, 'script.mjs')
         );
-        const css = panel.webview.asWebviewUri(
-            vscode.Uri.joinPath(folder, 'style.css')
+        const sharedCss = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.css')
+        );
+        const sharedUi = panel.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.js')
         );
         const csp = panel.webview.cspSource;
 
@@ -206,24 +217,31 @@ class IEVisualScriptEditor {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
-    <link rel="stylesheet" href="${css}">
+        content="default-src 'none'; style-src ${csp}; script-src 'nonce-${nonce}' ${csp}; connect-src ${csp};">
+    <link rel="stylesheet" href="${sharedCss}">
     <title>Infinite Graph Editor</title>
 </head>
 
-<body>
+<body data-ie-editor="graph-script">
     <div id="workspace">
         <canvas id="graph"></canvas>
 
-        <div id="toolbar">
-    <div id="actions"><button id="back-main" hidden>← Main</button></div>
+        <div id="toolbar" role="toolbar" aria-label="Visual Script controls">
+    <div id="actions"><button id="nav-back" title="Back" aria-label="Back"><ion-icon name="arrow-back"></ion-icon></button><button id="nav-forward" title="Forward" aria-label="Forward"><ion-icon name="arrow-forward"></ion-icon></button><button id="back-main" hidden>Main</button></div>
     <span id="graph-title">Main Graph</span>
     <div id="actions">
     <span></span>
-    <button id="fit">Fit</button>
-    <button id="connections">Connections</button>
-    <button id="zoom-out">−</button>
-    <button id="zoom-in">+</button></div>
+    <button id="undo" title="Undo" aria-label="Undo"><ion-icon name="arrow-undo"></ion-icon></button><button id="redo" title="Redo" aria-label="Redo"><ion-icon name="arrow-redo"></ion-icon></button>
+    <button id="add-comment" title="Add Comment" aria-label="Add Comment"><ion-icon name="chatbox-outline"></ion-icon></button>
+    <button id="validate" title="Validate Graph" aria-label="Validate Graph"><ion-icon name="checkmark-circle-outline"></ion-icon></button>
+    <button id="auto-layout" title="Auto Layout" aria-label="Auto Layout"><ion-icon name="git-network-outline"></ion-icon></button>
+    <button id="toggle-snap" title="Toggle Grid Snap" aria-label="Toggle Grid Snap" aria-pressed="false"><ion-icon name="magnet-outline"></ion-icon></button>
+    <button id="find-node" title="Find Node" aria-label="Find Node"><ion-icon name="search-outline"></ion-icon></button>
+    <button id="toggle-minimap" class="active" title="Toggle Minimap" aria-label="Toggle Minimap" aria-pressed="true"><ion-icon name="map-outline"></ion-icon></button>
+    <button id="fit" title="Fit Graph" aria-label="Fit Graph"><ion-icon name="scan-outline"></ion-icon></button>
+    <button id="connections" title="Graph Connections" aria-label="Graph Connections" aria-pressed="false"><ion-icon name="git-compare-outline"></ion-icon></button>
+    <button id="zoom-out" aria-label="Zoom out"><ion-icon name="remove"></ion-icon></button>
+    <button id="zoom-in" aria-label="Zoom in"><ion-icon name="add"></ion-icon></button></div>
 </div>
 
         <div id="node-menu" class="popup" hidden>
@@ -231,10 +249,30 @@ class IEVisualScriptEditor {
             <div id="menu-items"></div>
         </div>
 
+        <div id="node-context-menu" class="popup node-context-menu" hidden>
+            <button id="context-duplicate" class="menu-item">Duplicate <span>Shift+D</span></button>
+            <button id="context-collapse" class="menu-item">Collapse / Expand</button>
+            <button id="context-rename" class="menu-item">Rename Node</button>
+            <button id="context-find-usages" class="menu-item">Find Usages</button>
+            <button id="context-breakpoint" class="menu-item">Toggle Breakpoint</button>
+            <button id="context-watch" class="menu-item">Watch Runtime Values</button>
+            <button id="context-break-links" class="menu-item">Break All Links</button>
+            <button id="context-align-left" class="menu-item">Align Left</button>
+            <button id="context-align-top" class="menu-item">Align Top</button>
+            <button id="context-distribute" class="menu-item">Distribute Horizontally</button>
+            <div class="context-separator"></div>
+            <button id="context-delete" class="menu-item danger-item">Delete <span>Del</span></button>
+        </div>
+
+        <div id="graph-search" class="popup" hidden>
+            <input id="graph-search-input" placeholder="Find nodes..." />
+            <div id="graph-search-results"></div>
+        </div>
+
         <section id="connection-panel" class="floating-panel" hidden>
             <div class="panel-header">
                 <strong>Graph Connections</strong>
-                <button id="close-connections" aria-label="Close connections panel">×</button>
+                <button id="close-connections" aria-label="Close connections panel"><ion-icon name="close"></ion-icon></button>
             </div>
             <label>From output<select id="connection-from"></select></label>
             <label>To input<select id="connection-to"></select></label>
@@ -246,6 +284,7 @@ class IEVisualScriptEditor {
         <div id="zoom-label">100%</div>
     </div>
 
+    <script type="module" nonce="${nonce}" src="${sharedUi}"></script>
     <script type="module" nonce="${nonce}" src="${js}"></script>
 </body>
 
@@ -375,7 +414,6 @@ class IEVisualScriptEditor {
 			if (message.type === 'onGraphUpdate') {
 				message = { ...message, type: message.action };
 			}
-
 
             if (message.type === 'nodeLifecycle') {
                 const {
@@ -663,6 +701,14 @@ class IEVisualScriptEditor {
 			item
 		});
 		return true;
+	}
+
+	static async broadcastRuntimeEvent(event) {
+		await Promise.all(
+			[...(IEVisualScriptEditor.panels?.values() ?? [])].map(panel =>
+				panel.webview.postMessage({ type: 'runtimeEvent', event })
+			)
+		);
 	}
 
 }

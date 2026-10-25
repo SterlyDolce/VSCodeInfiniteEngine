@@ -53,10 +53,18 @@
         Transform: '#e3a369',
         Logic: '#b94848',
         References: '#6852a2',
+        Array: '#3b8f78',
+        Object: '#8b6fb2',
+        String: '#397aa8',
+        Number: '#b07a3e',
+        Conversion: '#747b87',
+        Flow: '#8c5252',
+        'User Interface': '#9b5de5',
     };
 
     let definitions = {};
     let actorAssets = [];
+    let assetIndex = new Map();
     let dataTypes = {};
 
     const uuid = () => crypto.randomUUID();
@@ -64,6 +72,8 @@
 
     let asset = null;
     let selectedNode = null;
+    let selectedNodes = new Set();
+    let selectedComment = null;
     let selectedVariable = null;
     let selectedLink = null;
     let drag = null;
@@ -79,6 +89,24 @@
     let menuPosition = { x: 0, y: 0 };
 	let droppedVariableId = null;
 	let armedScriptItem = null;
+	let menuActiveIndex = -1;
+    let contextPinId = null;
+    let undoStack = [];
+    let redoStack = [];
+    let historySnapshot = null;
+    let clipboard = null;
+    let drawPending = false;
+    let showMinimap = true;
+    let snapToGrid = false;
+    let nodeErrors = new Map();
+    const runtimeHighlights = new Map();
+    const runtimeValues = new Map();
+    const runtimePinValues = new Map();
+    let navigationBack = [];
+    let navigationForward = [];
+    const layoutCache = new Map();
+    let visibleNodeCache = [];
+    let minimapState = null;
 
 
     let activeFunctionId = null;
@@ -92,6 +120,11 @@
 
     const nodes = () => graph()?.nodes ?? [];
     const links = () => graph()?.links ?? [];
+    const comments = () => {
+        if (!graph()) return [];
+        graph().comments ??= [];
+        return graph().comments;
+    };
 
     const globalVariables = () => asset?.data?.variables ?? [];
     const localVariables = () => activeFunction()?.variables ?? [];
@@ -110,6 +143,8 @@
             name: node.type,
             category: 'Math'
         };
+
+        if (node.customTitle) return { ...def, name: node.customTitle };
 
         if (node.type === 'variable.set') {
             return {
@@ -453,6 +488,8 @@
 
 
     function nodeSize(node) {
+        const cacheKey = `${node.id}:${node.collapsed ? 1 : 0}:${node.customTitle ?? ''}:${node.pins?.length ?? 0}`;
+        if (layoutCache.has(cacheKey)) return layoutCache.get(cacheKey);
         if (node.type === 'variable.get') {
             const name = 'Get ' +
                 (findVariable(node.variableId)?.name ?? 'Variable');
@@ -460,10 +497,12 @@
             ctx.font = '600 12px ' +
                 getComputedStyle(document.documentElement).fontFamily;
 
-            return {
+            const size = {
                 w: Math.max(120, ctx.measureText(name).width + 48),
                 h: 40
             };
+            layoutCache.set(cacheKey, size);
+            return size;
         }
 
         const inputs = node.pins.filter(
@@ -474,16 +513,25 @@
             pin => pin.direction === 'output'
         ).length;
 
-        return {
+        const size = {
             w: 190,
-            h: 58 + 27 * Math.max(inputs, outputs, 1)
+            h: node.collapsed ? 40 : 58 + 27 * Math.max(inputs, outputs, 1)
         };
+        layoutCache.set(cacheKey, size);
+        return size;
     }
 
 
 
     function pinPosition(node, pin) {
         const { w, h } = nodeSize(node);
+
+        if (node.collapsed) {
+            return {
+                x: node.position[0] + (pin.direction === 'input' ? 0 : w),
+                y: node.position[1] + h / 2
+            };
+        }
 
         if (node.type === 'variable.get') {
             return {
@@ -516,11 +564,46 @@
         }, 300);
     }
 
-    function changed(message) {
+    function changed(message, recordHistory = true) {
+        layoutCache.clear();
+        const current = asset ? JSON.stringify(asset) : null;
+        if (recordHistory && historySnapshot && current !== historySnapshot) {
+            undoStack.push(historySnapshot);
+            if (undoStack.length > 100) undoStack.shift();
+            redoStack = [];
+        }
+        historySnapshot = current;
         if (message) status(message);
         draw();
         sendSelection();
         scheduleSave();
+        updateHistoryControls();
+    }
+
+    function updateHistoryControls() {
+        if ($('undo')) $('undo').disabled = !undoStack.length;
+        if ($('redo')) $('redo').disabled = !redoStack.length;
+    }
+
+    function restoreHistory(serialized, destination, message) {
+        if (!asset || !serialized) return;
+        destination.push(JSON.stringify(asset));
+        asset = JSON.parse(serialized);
+        historySnapshot = JSON.stringify(asset);
+        selectedNode = null;
+        selectedNodes.clear();
+        selectedComment = null;
+        selectedLink = null;
+        changed(message, false);
+        updateHistoryControls();
+    }
+
+    function undo() {
+        if (undoStack.length) restoreHistory(undoStack.pop(), redoStack, 'Undo');
+    }
+
+    function redo() {
+        if (redoStack.length) restoreHistory(redoStack.pop(), undoStack, 'Redo');
     }
 
 
@@ -531,6 +614,7 @@
                 {
                     name: node.name,
                     category: node.category,
+                    description: node.description ?? '',
 
                     inputs: node.inputs.map(pin => [
                         pin.name,
@@ -672,6 +756,7 @@
         nodes().push(node);
 
         selectedNode = node.id;
+        selectedNodes = new Set([node.id]);
         selectedVariable = null;
         selectedLink = null;
         drag = null;
@@ -756,6 +841,7 @@
 
         nodes().push(node);
         selectedNode = node.id;
+        selectedNodes = new Set([node.id]);
         selectedVariable = null;
         selectedLink = null;
 
@@ -796,6 +882,15 @@
     }
 
     function draw() {
+        if (drawPending) return;
+        drawPending = true;
+        requestAnimationFrame(() => {
+            drawPending = false;
+            drawImmediate();
+        });
+    }
+
+    function drawImmediate() {
         if (!width) return;
 
         const theme = getCanvasTheme();
@@ -824,19 +919,55 @@
         ctx.translate(view.x, view.y);
         ctx.scale(view.z, view.z);
 
+        const viewportBounds = {
+            left: -view.x / view.z - 250,
+            top: -view.y / view.z - 250,
+            right: (width - view.x) / view.z + 250,
+            bottom: (height - view.y) / view.z + 250
+        };
+        const visibleNodeIds = new Set(nodes().filter(node => {
+            const size = nodeSize(node);
+            return node.position[0] <= viewportBounds.right && node.position[0] + size.w >= viewportBounds.left &&
+                node.position[1] <= viewportBounds.bottom && node.position[1] + size.h >= viewportBounds.top;
+        }).map(node => node.id));
+        visibleNodeCache = nodes().filter(node => visibleNodeIds.has(node.id));
+
+        for (const comment of comments()) {
+            ctx.fillStyle = comment.color ?? 'rgba(90, 120, 180, 0.12)';
+            ctx.strokeStyle = selectedComment === comment.id
+                ? theme.selected
+                : (comment.border ?? '#5a78b4');
+            ctx.lineWidth = selectedComment === comment.id ? 2 : 1;
+            ctx.fillRect(comment.x, comment.y, comment.width, comment.height);
+            ctx.strokeRect(comment.x, comment.y, comment.width, comment.height);
+            ctx.fillStyle = theme.foreground;
+            ctx.font = '600 12px ' + getComputedStyle(document.documentElement).fontFamily;
+            ctx.textAlign = 'left';
+            ctx.fillText(comment.title || 'Comment', comment.x + 9, comment.y + 19);
+            if (selectedComment === comment.id) {
+                ctx.fillStyle = theme.selected;
+                ctx.fillRect(comment.x + comment.width - 8, comment.y + comment.height - 8, 8, 8);
+            }
+        }
+
         for (const link of links()) {
             const a = findPin(link.from);
             const b = findPin(link.to);
 
             if (!a || !b) continue;
+            if (!visibleNodeIds.has(a.node.id) && !visibleNodeIds.has(b.node.id)) continue;
 
             const isExec = a.pin.type === 'execution';
+            const runtimeActive = isExec && (
+                (runtimeHighlights.get(a.node.id) ?? 0) > Date.now() - 650 ||
+                (runtimeHighlights.get(b.node.id) ?? 0) > Date.now() - 650
+            );
 
             bezier(
                 pinPosition(a.node, a.pin),
                 pinPosition(b.node, b.pin),
-                isExec ? '#7c7c7c' : (colors[a.pin.type] ?? theme.muted),
-                selectedLink === link.id ? 5 : (isExec ? 4 : 2.4)
+                runtimeActive ? '#35d07f' : (isExec ? '#7c7c7c' : (colors[a.pin.type] ?? theme.muted)),
+                selectedLink === link.id || runtimeActive ? 5 : (isExec ? 4 : 2.4)
             );
         }
 
@@ -855,8 +986,9 @@
         for (const node of [
             ...nodes(),
             ...(placement ? [placement.node] : [])
-        ]) {
+        ].filter(node => placement?.node === node || visibleNodeIds.has(node.id))) {
             const { w, h } = nodeSize(node);
+            const runtimeActive = (runtimeHighlights.get(node.id) ?? 0) > Date.now() - 650;
 
             if (node.type === 'variable.get') {
                 const variable = findVariable(node.variableId);
@@ -869,7 +1001,7 @@
                 rounded(
                     x, y, w, h, h / 2,
                     theme.node,
-                    selectedNode === node.id ? theme.selected : theme.border
+                    runtimeActive ? '#35d07f' : (selectedNodes.has(node.id) ? theme.selected : theme.border)
                 );
 
                 ctx.font = '600 12px ' +
@@ -911,7 +1043,7 @@
             rounded(
                 x, y, w, h, 9,
                 theme.node,
-                selectedNode === node.id ? theme.selected : theme.border
+                runtimeActive ? '#35d07f' : (selectedNodes.has(node.id) ? theme.selected : theme.border)
             );
 
             ctx.restore();
@@ -935,6 +1067,19 @@
             ctx.textAlign = 'left';
             ctx.fillText(name, x + 12, y + headerHeight / 2 + 4);
 
+            if (node.breakpoint) {
+                ctx.fillStyle = '#e14c4c';
+                ctx.beginPath(); ctx.arc(x + w - 13, y + headerHeight / 2, 6, 0, Math.PI * 2); ctx.fill();
+            }
+
+            if (node.watch && runtimeValues.has(node.id)) {
+                const value = runtimeValues.get(node.id);
+                ctx.fillStyle = '#35d07f';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'right';
+                ctx.fillText(String(value).slice(0, 22), x + w - 10, y + h - 8);
+            }
+
             // Divider beneath header
             ctx.beginPath();
             ctx.moveTo(x, y + headerHeight);
@@ -953,6 +1098,19 @@
                     y + h - 12
                 );
             }
+
+            if (nodeErrors.has(node.id)) {
+                ctx.fillStyle = '#f14c4c';
+                ctx.beginPath();
+                ctx.arc(x + w - 12, y + 12, 7, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = '700 10px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('!', x + w - 12, y + 16);
+            }
+
+            if (node.collapsed || view.z < 0.4) continue;
 
             for (const direction of ['input', 'output']) {
                 const group = node.pins.filter(p => p.direction === direction);
@@ -979,7 +1137,29 @@
                         p.x + (output ? -12 : 12),
                         p.y + 4
                     );
+                    if (
+                        !output &&
+                        pin.type !== 'execution' &&
+                        !links().some(link => link.to === pin.id) &&
+                        Object.hasOwn(pin, 'value') &&
+                        view.z > 0.45
+                    ) {
+                        const raw = typeof pin.value === 'object'
+                            ? JSON.stringify(pin.value)
+                            : String(pin.value ?? '');
+                        const shown = raw.length > 15 ? raw.slice(0, 14) + '…' : raw;
+                        ctx.fillStyle = theme.muted;
+                        ctx.textAlign = 'right';
+                        ctx.fillText(shown, x + w - 10, p.y + 4);
+                    }
                     ctx.textAlign = 'left';
+                    if (output && node.watchPins?.includes(pin.id) && runtimePinValues.has(`${node.id}:${pin.name}`)) {
+                        const watched = String(runtimePinValues.get(`${node.id}:${pin.name}`)).slice(0, 18);
+                        ctx.fillStyle = '#35d07f';
+                        ctx.textAlign = 'right';
+                        ctx.fillText(watched, p.x - 12, p.y + 16);
+                        ctx.textAlign = 'left';
+                    }
                 }
             }
 
@@ -990,12 +1170,50 @@
         }
 
         ctx.restore();
+
+        if (drag?.kind === 'box') {
+            const x = Math.min(drag.start.x, drag.current.x);
+            const y = Math.min(drag.start.y, drag.current.y);
+            const w = Math.abs(drag.current.x - drag.start.x);
+            const h = Math.abs(drag.current.y - drag.start.y);
+            ctx.fillStyle = 'rgba(0, 127, 212, 0.12)';
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = theme.selected;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, w, h);
+        }
+
+        minimapState = null;
+        if (showMinimap && nodes().length) drawMinimap(theme);
+    }
+
+    function drawMinimap(theme) {
+        const map = { x: width - 194, y: height - 124, w: 180, h: 105 };
+        let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+        for (const node of nodes()) {
+            const size = nodeSize(node);
+            left = Math.min(left, node.position[0]); top = Math.min(top, node.position[1]);
+            right = Math.max(right, node.position[0] + size.w); bottom = Math.max(bottom, node.position[1] + size.h);
+        }
+        const graphW = Math.max(1, right - left), graphH = Math.max(1, bottom - top);
+        const scale = Math.min((map.w - 12) / graphW, (map.h - 12) / graphH);
+        const ox = map.x + (map.w - graphW * scale) / 2 - left * scale;
+        const oy = map.y + (map.h - graphH * scale) / 2 - top * scale;
+        minimapState = { ...map, scale, ox, oy };
+        ctx.fillStyle = 'rgba(20, 20, 24, .86)'; ctx.fillRect(map.x, map.y, map.w, map.h);
+        ctx.strokeStyle = theme.border; ctx.strokeRect(map.x, map.y, map.w, map.h);
+        ctx.fillStyle = theme.muted;
+        for (const node of nodes()) { const size = nodeSize(node); ctx.fillRect(ox + node.position[0] * scale, oy + node.position[1] * scale, Math.max(2, size.w * scale), Math.max(2, size.h * scale)); }
+        const worldLeft = -view.x / view.z, worldTop = -view.y / view.z;
+        ctx.strokeStyle = theme.selected;
+        ctx.strokeRect(ox + worldLeft * scale, oy + worldTop * scale, width / view.z * scale, height / view.z * scale);
     }
 
     function hit(x, y) {
         const point = world(x, y);
 
-        for (const node of [...nodes()].reverse()) {
+        const candidates = visibleNodeCache.length ? visibleNodeCache : nodes();
+        for (const node of [...candidates].reverse()) {
             for (const pin of node.pins) {
                 const p = pinPosition(node, pin);
 
@@ -1017,6 +1235,73 @@
         }
 
         return { kind: 'background' };
+    }
+
+    function hitComment(x, y) {
+        const point = world(x, y);
+        return [...comments()].reverse().find(comment =>
+            point.x >= comment.x && point.x <= comment.x + comment.width &&
+            point.y >= comment.y && point.y <= comment.y + comment.height
+        ) ?? null;
+    }
+
+    function addComment() {
+        if (!asset) return;
+        const selected = nodes().filter(node => selectedNodes.has(node.id));
+        let x, y, widthValue, heightValue;
+        if (selected.length) {
+            const left = Math.min(...selected.map(node => node.position[0]));
+            const top = Math.min(...selected.map(node => node.position[1]));
+            const right = Math.max(...selected.map(node => node.position[0] + nodeSize(node).w));
+            const bottom = Math.max(...selected.map(node => node.position[1] + nodeSize(node).h));
+            x = left - 30; y = top - 45; widthValue = right - left + 60; heightValue = bottom - top + 75;
+        } else {
+            const center = lastPointer ? world(lastPointer.x, lastPointer.y) : world(width / 2, height / 2);
+            x = center.x; y = center.y; widthValue = 360; heightValue = 220;
+        }
+        const comment = { id: uuid(), title: 'Comment', x, y, width: widthValue, height: heightValue, color: 'rgba(90, 120, 180, 0.12)', border: '#5a78b4' };
+        comments().push(comment);
+        selectedComment = comment.id;
+        changed('Comment added');
+        requestAnimationFrame(() => editCommentTitle(comment, true));
+    }
+
+    function editCommentTitle(comment, selectAll = false) {
+        if (!comment) return;
+
+        document.querySelector('.comment-title-editor')?.remove();
+        const input = document.createElement('input');
+        input.className = 'comment-title-editor';
+        input.type = 'text';
+        input.value = comment.title || 'Comment';
+        input.setAttribute('aria-label', 'Comment title');
+        input.style.left = `${comment.x * view.z + view.x + 7}px`;
+        input.style.top = `${comment.y * view.z + view.y + 3}px`;
+        input.style.width = `${Math.max(100, comment.width * view.z - 14)}px`;
+        work.appendChild(input);
+        input.focus();
+        if (selectAll) input.select();
+
+        const finish = commit => {
+            if (!input.isConnected) return;
+            const title = input.value.trim();
+            input.remove();
+
+            if (commit && title && title !== comment.title) {
+                comment.title = title;
+                changed('Comment renamed');
+            } else {
+                draw();
+            }
+
+            canvas.focus();
+        };
+
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter') finish(true);
+            if (event.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
     }
 
     function distanceToLink(link, x, y) {
@@ -1055,9 +1340,61 @@
     function hitLink(x, y) {
         const p = world(x, y);
 
-        return [...links()].reverse().find(link =>
-            distanceToLink(link, p.x, p.y) < 8 / view.z
-        );
+        const visibleIds = new Set((visibleNodeCache.length ? visibleNodeCache : nodes()).map(node => node.id));
+        return [...links()].reverse().find(link => {
+            const from = findPin(link.from), to = findPin(link.to);
+            if (!from || !to || (!visibleIds.has(from.node.id) && !visibleIds.has(to.node.id))) return false;
+            return distanceToLink(link, p.x, p.y) < 8 / view.z;
+        });
+    }
+
+    function editPinValue(node, pin) {
+        if (
+            pin.direction !== 'input' ||
+            pin.type === 'execution' ||
+            links().some(link => link.to === pin.id)
+        ) return;
+
+        if (pin.type === 'boolean') {
+            pin.value = pin.value !== true;
+            changed(`${pin.name} updated`);
+            return;
+        }
+
+        if (!['number', 'string'].includes(pin.type)) {
+            status('Edit this value in Properties');
+            return;
+        }
+
+        document.querySelector('.inline-pin-editor')?.remove();
+        const position = pinPosition(node, pin);
+        const input = document.createElement('input');
+        input.className = 'inline-pin-editor';
+        input.type = pin.type === 'number' ? 'number' : 'text';
+        input.value = String(pin.value ?? '');
+        input.style.left = `${position.x * view.z + view.x + 12}px`;
+        input.style.top = `${position.y * view.z + view.y - 13}px`;
+        work.appendChild(input);
+        input.focus();
+        input.select();
+
+        const finish = commit => {
+            if (!input.isConnected) return;
+            if (commit) {
+                const value = pin.type === 'number' ? Number(input.value) : input.value;
+                if (pin.type !== 'number' || Number.isFinite(value)) {
+                    pin.value = value;
+                    changed(`${pin.name} updated`);
+                }
+            }
+            input.remove();
+            canvas.focus();
+        };
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter') finish(true);
+            if (event.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
     }
 
 
@@ -1381,6 +1718,20 @@
     canvas.addEventListener('pointerdown', event => {
         if (!asset || event.button !== 0) return;
 
+        const pointer = coords(event);
+        if (
+            showMinimap && minimapState &&
+            pointer.x >= minimapState.x && pointer.x <= minimapState.x + minimapState.w &&
+            pointer.y >= minimapState.y && pointer.y <= minimapState.y + minimapState.h
+        ) {
+            const worldX = (pointer.x - minimapState.ox) / minimapState.scale;
+            const worldY = (pointer.y - minimapState.oy) / minimapState.scale;
+            view.x = width / 2 - worldX * view.z;
+            view.y = height / 2 - worldY * view.z;
+            draw();
+            return;
+        }
+
         if (placement) {
             event.preventDefault();
             placeDuplicate(coords(event));
@@ -1389,21 +1740,35 @@
 
         closeMenu();
 
-        const p = coords(event);
+        const p = pointer;
         const target = hit(p.x, p.y);
 
         if (target.kind === 'pin') {
             drag = { ...target, x: p.x, y: p.y };
         } else if (target.kind === 'node') {
-            selectedNode = target.node.id;
+            if (event.shiftKey) {
+                if (selectedNodes.has(target.node.id)) {
+                    selectedNodes.delete(target.node.id);
+                } else {
+                    selectedNodes.add(target.node.id);
+                }
+            } else if (!selectedNodes.has(target.node.id)) {
+                selectedNodes = new Set([target.node.id]);
+            }
+            selectedNode = selectedNodes.has(target.node.id)
+                ? target.node.id
+                : ([...selectedNodes][0] ?? null);
             selectedVariable = null;
             selectedLink = null;
+            selectedComment = null;
 
             drag = {
                 kind: 'move',
                 node: target.node,
                 start: world(p.x, p.y),
-                origin: [...target.node.position],
+                origins: new Map(nodes()
+                    .filter(node => selectedNodes.has(node.id))
+                    .map(node => [node.id, [...node.position]])),
                 moved: false
             };
 
@@ -1413,14 +1778,44 @@
 
         } else {
             const link = hitLink(p.x, p.y);
+            const comment = link ? null : hitComment(p.x, p.y);
+
+            if (comment) {
+                const point = world(p.x, p.y);
+                const resize = point.x >= comment.x + comment.width - 18 &&
+                    point.y >= comment.y + comment.height - 18;
+                selectedComment = comment.id;
+                selectedNode = null;
+                selectedNodes.clear();
+                drag = {
+                    kind: resize ? 'comment-resize' : 'comment-move',
+                    comment,
+                    start: point,
+                    origin: { x: comment.x, y: comment.y, width: comment.width, height: comment.height },
+                    nodeOrigins: new Map(nodes().filter(node =>
+                        node.position[0] >= comment.x && node.position[1] >= comment.y &&
+                        node.position[0] + nodeSize(node).w <= comment.x + comment.width &&
+                        node.position[1] + nodeSize(node).h <= comment.y + comment.height
+                    ).map(node => [node.id, [...node.position]])),
+                    moved: false
+                };
+                canvas.setPointerCapture(event.pointerId);
+                draw();
+                return;
+            }
 
             selectedLink = link?.id ?? null;
-            selectedNode = null;
-            selectedVariable = null;
+            if (!event.shiftKey) {
+                selectedNode = null;
+                selectedNodes.clear();
+                selectedVariable = null;
+                selectedComment = null;
+            }
 
             drag = {
-                kind: 'pan',
+                kind: event.shiftKey ? 'box' : 'pan',
                 start: p,
+                current: p,
                 origin: { x: view.x, y: view.y }
             };
 
@@ -1436,6 +1831,15 @@
 
         lastPointer = p;
 
+        if (!drag && !placement) {
+            const hovered = hit(p.x, p.y);
+            if (hovered.node) {
+                const errors = nodeErrors.get(hovered.node.id);
+                const def = definition(hovered.node);
+                status(`${def.name} · ${def.description || hovered.node.type}${errors?.length ? ` · ${errors.join(', ')}` : ''}`);
+            }
+        }
+
         if (placement) {
             updatePlacementPosition(p);
             canvas.style.cursor = 'crosshair';
@@ -1448,18 +1852,39 @@
             drag.y = p.y;
         } else if (drag?.kind === 'move') {
             const q = world(p.x, p.y);
-            const x = Math.round(drag.origin[0] + q.x - drag.start.x);
-            const y = Math.round(drag.origin[1] + q.y - drag.start.y);
-
-            if (
-                x !== drag.node.position[0] ||
-                y !== drag.node.position[1]
-            ) drag.moved = true;
-
-            drag.node.position = [x, y];
+            const dx = q.x - drag.start.x;
+            const dy = q.y - drag.start.y;
+            for (const [id, origin] of drag.origins) {
+                const node = nodes().find(item => item.id === id);
+                if (node) {
+                    const x = origin[0] + dx, y = origin[1] + dy;
+                    node.position = snapToGrid
+                        ? [Math.round(x / 20) * 20, Math.round(y / 20) * 20]
+                        : [Math.round(x), Math.round(y)];
+                }
+            }
+            if (Math.abs(dx) >= 1 || Math.abs(dy) >= 1) drag.moved = true;
         } else if (drag?.kind === 'pan') {
             view.x = drag.origin.x + p.x - drag.start.x;
             view.y = drag.origin.y + p.y - drag.start.y;
+        } else if (drag?.kind === 'box') {
+            drag.current = p;
+        } else if (drag?.kind === 'comment-move' || drag?.kind === 'comment-resize') {
+            const point = world(p.x, p.y);
+            const dx = point.x - drag.start.x;
+            const dy = point.y - drag.start.y;
+            if (drag.kind === 'comment-move') {
+                drag.comment.x = Math.round(drag.origin.x + dx);
+                drag.comment.y = Math.round(drag.origin.y + dy);
+                for (const [id, origin] of drag.nodeOrigins) {
+                    const node = nodes().find(item => item.id === id);
+                    if (node) node.position = [Math.round(origin[0] + dx), Math.round(origin[1] + dy)];
+                }
+            } else {
+                drag.comment.width = Math.max(120, Math.round(drag.origin.width + dx));
+                drag.comment.height = Math.max(80, Math.round(drag.origin.height + dy));
+            }
+            drag.moved = true;
         }
 
         canvas.style.cursor =
@@ -1502,7 +1927,25 @@
 
 
         if (drag.kind === 'move' && drag.moved) {
-            scheduleSave();
+            changed('Nodes moved');
+        }
+
+        if (drag.kind === 'box') {
+            const a = world(drag.start.x, drag.start.y);
+            const b = world(drag.current.x, drag.current.y);
+            const left = Math.min(a.x, b.x), right = Math.max(a.x, b.x);
+            const top = Math.min(a.y, b.y), bottom = Math.max(a.y, b.y);
+            selectedNodes = new Set(nodes().filter(node => {
+                const size = nodeSize(node);
+                return node.position[0] <= right && node.position[0] + size.w >= left &&
+                    node.position[1] <= bottom && node.position[1] + size.h >= top;
+            }).map(node => node.id));
+            selectedNode = [...selectedNodes][0] ?? null;
+            sendSelection();
+        }
+
+        if ((drag.kind === 'comment-move' || drag.kind === 'comment-resize') && drag.moved) {
+            changed('Comment updated');
         }
 
         drag = null;
@@ -1525,6 +1968,13 @@
         if (!asset) return;
 
         const p = coords(event);
+        const target = hit(p.x, p.y);
+
+        if (target.kind === 'node' || target.kind === 'pin') {
+            openNodeContextMenu(p.x, p.y, target.node, target.pin ?? null);
+            return;
+        }
+
         const link = hitLink(p.x, p.y);
 
         if (link) {
@@ -1532,6 +1982,18 @@
 
             selectedLink = null;
             changed('Connection removed');
+            return;
+        }
+
+        const comment = hitComment(p.x, p.y);
+        if (comment) {
+            const color = window.prompt('Comment color', comment.border ?? '#5a78b4');
+            if (color && /^#[0-9a-f]{6}$/i.test(color)) {
+                comment.border = color;
+                comment.color = color + '22';
+                selectedComment = comment.id;
+                changed('Comment color updated');
+            }
             return;
         }
 
@@ -1546,9 +2008,23 @@
         const p = coords(event);
         const target = hit(p.x, p.y);
 
+        if (target.kind === 'background') {
+            const comment = hitComment(p.x, p.y);
+            if (comment) {
+                editCommentTitle(comment, true);
+            }
+            return;
+        }
+
+        if (target.kind === 'pin') {
+            editPinValue(target.node, target.pin);
+            return;
+        }
+
         if (target.kind !== 'node') return;
 
         selectedNode = target.node.id;
+        selectedNodes = new Set([target.node.id]);
         selectedVariable = null;
         selectedLink = null;
 
@@ -1639,9 +2115,138 @@
         draw();
     }
 
+    function frameNodes(targetNodes) {
+        if (!targetNodes.length) return;
+        let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+        for (const node of targetNodes) {
+            const size = nodeSize(node);
+            left = Math.min(left, node.position[0]); top = Math.min(top, node.position[1]);
+            right = Math.max(right, node.position[0] + size.w); bottom = Math.max(bottom, node.position[1] + size.h);
+        }
+        view.z = Math.max(.25, Math.min(1.5, Math.min((width - 120) / Math.max(1, right - left), (height - 120) / Math.max(1, bottom - top))));
+        view.x = (width - (left + right) * view.z) / 2;
+        view.y = (height - (top + bottom) * view.z) / 2;
+        updateZoom(); draw();
+    }
+
+    function frameSelection() {
+        frameNodes(nodes().filter(node => selectedNodes.has(node.id)));
+    }
+
+    function validateGraph() {
+        nodeErrors = new Map();
+        const pinOwners = new Map();
+        const ids = new Set();
+        for (const node of nodes()) {
+            const errors = [];
+            if (ids.has(node.id)) errors.push('Duplicate node ID');
+            ids.add(node.id);
+            if (!definitions[node.type] && !['variable.get', 'variable.set', 'function.call', 'function.entry', 'function.return'].includes(node.type)) errors.push(`Unknown node type: ${node.type}`);
+            for (const pin of node.pins ?? []) {
+                if (pinOwners.has(pin.id)) errors.push('Duplicate pin ID');
+                pinOwners.set(pin.id, { node, pin });
+                if (pin.assetType && pin.direction === 'input' && pin.value) {
+                    const assetId = typeof pin.value === 'string' ? pin.value : pin.value?.id;
+                    if (assetId && !assetIndex.has(assetId)) errors.push(`Missing ${pin.assetType} asset`);
+                }
+            }
+            if (node.type.startsWith('variable.') && !findVariable(node.variableId)) errors.push('Missing variable');
+            if (node.type === 'function.call' && !functions().some(fn => fn.id === node.functionId)) errors.push('Missing function');
+            if (node.type === 'function.call' && node.functionId === activeFunctionId) errors.push('Recursive function call');
+            if (errors.length) nodeErrors.set(node.id, errors);
+        }
+        for (const link of links()) {
+            const from = pinOwners.get(link.from), to = pinOwners.get(link.to);
+            if (!from || !to) {
+                const owner = from?.node ?? to?.node;
+                if (owner) nodeErrors.set(owner.id, [...(nodeErrors.get(owner.id) ?? []), 'Broken link']);
+                continue;
+            }
+            if (from.pin.direction !== 'output' || to.pin.direction !== 'input' || !canConnectTypes(from.pin.type, to.pin.type)) {
+                nodeErrors.set(to.node.id, [...(nodeErrors.get(to.node.id) ?? []), 'Invalid connection']);
+            }
+        }
+        const executionAdjacency = new Map(nodes().map(node => [node.id, []]));
+        for (const link of links()) {
+            const from = pinOwners.get(link.from), to = pinOwners.get(link.to);
+            if (from?.pin.type === 'execution' && to?.pin.type === 'execution') {
+                executionAdjacency.get(from.node.id)?.push(to.node.id);
+            }
+        }
+        const roots = nodes().filter(node => node.type.startsWith('event.') || node.type === 'function.entry');
+        const reachable = new Set();
+        const visit = id => { if (reachable.has(id)) return; reachable.add(id); for (const next of executionAdjacency.get(id) ?? []) visit(next); };
+        roots.forEach(node => visit(node.id));
+        for (const node of nodes()) {
+            const hasExecution = node.pins?.some(pin => pin.type === 'execution');
+            if (hasExecution && !reachable.has(node.id) && !roots.includes(node)) {
+                nodeErrors.set(node.id, [...(nodeErrors.get(node.id) ?? []), 'Unreachable execution node']);
+            }
+        }
+        const visiting = new Set(), visited = new Set();
+        const detectCycle = id => {
+            if (visiting.has(id)) { nodeErrors.set(id, [...(nodeErrors.get(id) ?? []), 'Execution cycle']); return; }
+            if (visited.has(id)) return;
+            visiting.add(id);
+            for (const next of executionAdjacency.get(id) ?? []) detectCycle(next);
+            visiting.delete(id); visited.add(id);
+        };
+        roots.forEach(node => detectCycle(node.id));
+        if (activeFunction() && !nodes().some(node => node.type === 'function.return')) {
+            const entry = nodes().find(node => node.type === 'function.entry');
+            if (entry) nodeErrors.set(entry.id, [...(nodeErrors.get(entry.id) ?? []), 'Missing Function Return']);
+        }
+        const count = [...nodeErrors.values()].reduce((sum, errors) => sum + errors.length, 0);
+        status(count ? `${count} validation issue${count === 1 ? '' : 's'}` : 'Graph validation passed');
+        draw();
+        return count;
+    }
+
+    function autoLayout() {
+        const all = nodes();
+        if (!all.length) return;
+        const indegree = new Map(all.map(node => [node.id, 0]));
+        const next = new Map(all.map(node => [node.id, []]));
+        const pinOwner = new Map(all.flatMap(node => node.pins.map(pin => [pin.id, node.id])));
+        for (const link of links()) {
+            const from = pinOwner.get(link.from), to = pinOwner.get(link.to);
+            if (from && to && from !== to) { next.get(from).push(to); indegree.set(to, (indegree.get(to) ?? 0) + 1); }
+        }
+        const queue = all.filter(node => indegree.get(node.id) === 0);
+        const layer = new Map(queue.map(node => [node.id, 0]));
+        while (queue.length) {
+            const node = queue.shift();
+            for (const id of next.get(node.id) ?? []) {
+                layer.set(id, Math.max(layer.get(id) ?? 0, (layer.get(node.id) ?? 0) + 1));
+                indegree.set(id, indegree.get(id) - 1);
+                if (indegree.get(id) === 0) queue.push(all.find(item => item.id === id));
+            }
+        }
+        const columns = new Map();
+        for (const node of all) { const column = layer.get(node.id) ?? 0; const list = columns.get(column) ?? []; list.push(node); columns.set(column, list); }
+        for (const [column, list] of columns) list.forEach((node, row) => { node.position = [80 + column * 270, 80 + row * 150]; });
+        changed('Graph arranged'); fit();
+    }
+
+    function alignSelection(axis) {
+        const selected = nodes().filter(node => selectedNodes.has(node.id));
+        if (selected.length < 2) return;
+        const value = Math.min(...selected.map(node => node.position[axis === 'x' ? 0 : 1]));
+        for (const node of selected) node.position[axis === 'x' ? 0 : 1] = value;
+        changed(axis === 'x' ? 'Aligned left' : 'Aligned top');
+    }
+
+    function distributeSelection() {
+        const selected = nodes().filter(node => selectedNodes.has(node.id)).sort((a, b) => a.position[0] - b.position[0]);
+        if (selected.length < 3) return;
+        const first = selected[0].position[0], last = selected.at(-1).position[0], gap = (last - first) / (selected.length - 1);
+        selected.forEach((node, index) => { node.position[0] = Math.round(first + gap * index); });
+        changed('Distributed horizontally');
+    }
 
 
-    function openFunction(id = null) {
+
+    function openFunction(id = null, recordNavigation = true) {
         if (!asset) return;
 
         const fn = id === null
@@ -1656,9 +2261,14 @@
         }
 
         cancelDuplicate();
+        if (recordNavigation && activeFunctionId !== id) {
+            navigationBack.push(activeFunctionId);
+            navigationForward = [];
+        }
         activeFunctionId = id;
 
         selectedNode = null;
+        selectedNodes.clear();
         selectedVariable = null;
         selectedLink = null;
         drag = null;
@@ -1676,6 +2286,14 @@
         sendSelection();
         fit();
 
+    }
+
+    function navigateHistory(direction) {
+        const source = direction === 'back' ? navigationBack : navigationForward;
+        const destination = direction === 'back' ? navigationForward : navigationBack;
+        if (!source.length) return;
+        destination.push(activeFunctionId);
+        openFunction(source.pop(), false);
     }
 
 
@@ -1696,6 +2314,7 @@
         graph().nodes.push(node);
 
         selectedNode = node.id;
+        selectedNodes = new Set([node.id]);
         selectedVariable = null;
         selectedLink = null;
 
@@ -1708,8 +2327,10 @@
     function updateGraphHeader() {
         const fn = activeFunction();
 
-        $('graph-title').textContent = fn?.name ?? 'Main Graph';
+        $('graph-title').textContent = fn ? `Main Graph  /  ${fn.name}` : 'Main Graph';
         $('back-main').hidden = !fn;
+        $('nav-back').disabled = !navigationBack.length;
+        $('nav-forward').disabled = !navigationForward.length;
     }
 
 
@@ -1823,6 +2444,14 @@
     function deleteSelection() {
         if (!asset) return;
 
+        if (selectedComment) {
+            const index = comments().findIndex(comment => comment.id === selectedComment);
+            if (index >= 0) comments().splice(index, 1);
+            selectedComment = null;
+            changed('Comment removed');
+            return;
+        }
+
         if (selectedLink) {
             const link = links().find(
                 item => item.id === selectedLink
@@ -1837,21 +2466,23 @@
             return;
         }
 
-        if (!selectedNode) return;
+        const ids = selectedNodes.size
+            ? new Set(selectedNodes)
+            : new Set(selectedNode ? [selectedNode] : []);
+        if (!ids.size) return;
 
-        const node = nodes().find(n => n.id === selectedNode);
-        if (!node) return;
-
-        if (node.type === 'function.entry') {
+        const removable = nodes().filter(node =>
+            ids.has(node.id) && node.type !== 'function.entry'
+        );
+        if (!removable.length) {
             status('Function Entry cannot be deleted');
             return;
         }
 
         const owner = graph();
-
-        const pinIds = new Set(
+        const pinIds = new Set(removable.flatMap(node =>
             node.pins.map(pin => pin.id)
-        );
+        ));
 
         const affectedLinks = [...owner.links].filter(
             link =>
@@ -1864,12 +2495,135 @@
             removeGraphConnection(link, owner);
         }
 
-        owner.nodes = owner.nodes.filter(
-            item => item.id !== node.id
-        );
+        const removableIds = new Set(removable.map(node => node.id));
+        owner.nodes = owner.nodes.filter(item => !removableIds.has(item.id));
 
         selectedNode = null;
-        changed('Node removed');
+        selectedNodes.clear();
+        changed(`${removable.length} node${removable.length === 1 ? '' : 's'} removed`);
+    }
+
+    function copySelection(cut = false) {
+        const ids = selectedNodes.size
+            ? selectedNodes
+            : new Set(selectedNode ? [selectedNode] : []);
+        const copiedNodes = nodes().filter(node => ids.has(node.id));
+        if (!copiedNodes.length) return;
+        const pinIds = new Set(copiedNodes.flatMap(node => node.pins.map(pin => pin.id)));
+        clipboard = {
+            nodes: clone(copiedNodes),
+            links: clone(links().filter(link => pinIds.has(link.from) && pinIds.has(link.to)))
+        };
+        status(`${copiedNodes.length} node${copiedNodes.length === 1 ? '' : 's'} copied`);
+        if (cut) deleteSelection();
+    }
+
+    function pasteClipboard() {
+        if (!clipboard?.nodes?.length) return;
+        const beforeNodes = clone(clipboard.nodes);
+        const pinIds = new Map();
+        const minX = Math.min(...beforeNodes.map(node => node.position[0]));
+        const minY = Math.min(...beforeNodes.map(node => node.position[1]));
+        const target = lastPointer ? world(lastPointer.x, lastPointer.y) : world(width / 2, height / 2);
+
+        for (const node of beforeNodes) {
+            node.id = uuid();
+            node.position = [
+                Math.round(target.x + node.position[0] - minX),
+                Math.round(target.y + node.position[1] - minY)
+            ];
+            for (const pin of node.pins ?? []) {
+                const oldPinId = pin.id;
+                pin.id = uuid();
+                pinIds.set(oldPinId, pin.id);
+            }
+        }
+
+        const pastedLinks = clipboard.links.map(link => ({
+            id: uuid(),
+            from: pinIds.get(link.from),
+            to: pinIds.get(link.to)
+        })).filter(link => link.from && link.to);
+
+        graph().nodes.push(...beforeNodes);
+        graph().links.push(...pastedLinks);
+        selectedNodes = new Set(beforeNodes.map(node => node.id));
+        selectedNode = beforeNodes.at(-1).id;
+        changed(`${beforeNodes.length} node${beforeNodes.length === 1 ? '' : 's'} pasted`);
+    }
+
+    function selectAllNodes() {
+        selectedNodes = new Set(nodes().map(node => node.id));
+        selectedNode = nodes()[0]?.id ?? null;
+        draw();
+        sendSelection();
+    }
+
+    function findSelectedUsages() {
+        const node = nodes().find(item => item.id === selectedNode);
+        if (!node) return;
+        let matches = [node];
+        if (node.variableId) matches = nodes().filter(item => item.variableId === node.variableId);
+        else if (node.functionId) matches = nodes().filter(item => item.functionId === node.functionId);
+        selectedNodes = new Set(matches.map(item => item.id));
+        selectedNode = matches[0]?.id ?? null;
+        closeNodeContextMenu();
+        frameNodes(matches);
+        status(`${matches.length} usage${matches.length === 1 ? '' : 's'} selected`);
+    }
+
+    function renderGraphSearch() {
+        const query = $('graph-search-input').value.trim().toLowerCase();
+        const results = nodes().filter(node => {
+            const label = definition(node).name;
+            return !query || label.toLowerCase().includes(query) || node.type.toLowerCase().includes(query);
+        }).slice(0, 50);
+        $('graph-search-results').replaceChildren(...results.map(node => {
+            const button = document.createElement('button');
+            button.className = 'menu-item';
+            button.textContent = definition(node).name;
+            button.onclick = () => {
+                selectedNode = node.id;
+                selectedNodes = new Set([node.id]);
+                $('graph-search').hidden = true;
+                frameNodes([node]);
+                sendSelection();
+            };
+            return button;
+        }));
+    }
+
+    function openGraphSearch() {
+        const popup = $('graph-search');
+        popup.hidden = false;
+        popup.style.left = `${Math.max(8, width / 2 - 115)}px`;
+        popup.style.top = '58px';
+        $('graph-search-input').value = '';
+        renderGraphSearch();
+        $('graph-search-input').focus();
+    }
+
+    function breakSelectedNodeLinks() {
+        if (!selectedNode) return;
+
+        const node = nodes().find(item => item.id === selectedNode);
+        if (!node) return;
+
+        const pinIds = new Set((node.pins ?? []).map(pin => pin.id));
+        const connected = [...links()].filter(link =>
+            pinIds.has(link.from) || pinIds.has(link.to)
+        );
+
+        for (const link of connected) {
+            removeGraphConnection(link, graph());
+        }
+
+        closeNodeContextMenu();
+        changed(
+            connected.length
+                ? `${connected.length} connection${connected.length === 1 ? '' : 's'} removed`
+                : 'Node has no connections'
+        );
     }
 
     function createVariable() {
@@ -1894,9 +2648,38 @@
 
     function closeMenu() {
         $('node-menu').hidden = true;
+        menuActiveIndex = -1;
         pendingConnection = null;
 		droppedVariableId = null;
 		$('menu-search').placeholder = 'Search nodes...';
+    }
+
+    function closeNodeContextMenu() {
+        $('node-context-menu').hidden = true;
+        contextPinId = null;
+    }
+
+    function openNodeContextMenu(x, y, node, pin = null) {
+        closeMenu();
+        if (!selectedNodes.has(node.id)) selectedNodes = new Set([node.id]);
+        selectedNode = node.id;
+        selectedNodes = new Set([node.id]);
+        selectedVariable = null;
+        selectedLink = null;
+        lastPointer = { x, y };
+        contextPinId = pin?.id ?? null;
+
+        const menu = $('node-context-menu');
+        menu.hidden = false;
+        menu.style.left = Math.max(8, Math.min(x, width - 205)) + 'px';
+        menu.style.top = Math.max(8, Math.min(y, height - 340)) + 'px';
+
+        const protectedNode = node.type === 'function.entry';
+        $('context-duplicate').disabled = protectedNode;
+        $('context-delete').disabled = protectedNode;
+
+        sendSelection();
+        draw();
     }
 
 
@@ -1939,6 +2722,30 @@
         );
     }
 
+    function menuButtons() {
+        return [...$('menu-items').querySelectorAll('.menu-item')];
+    }
+
+    function selectMenuItem(index) {
+        const buttons = menuButtons();
+        if (!buttons.length) {
+            menuActiveIndex = -1;
+            return;
+        }
+
+        menuActiveIndex = Math.max(0, Math.min(index, buttons.length - 1));
+
+        buttons.forEach((button, buttonIndex) => {
+            const active = buttonIndex === menuActiveIndex;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-selected', String(active));
+        });
+
+        buttons[menuActiveIndex].scrollIntoView({
+            block: 'nearest'
+        });
+    }
+
 
     function renderMenu() {
         const root = $('menu-items');
@@ -1971,6 +2778,7 @@
 				root.appendChild(button);
 			}
 
+			selectMenuItem(0);
 			return;
 		}
 
@@ -2131,6 +2939,8 @@
             }
         }
 
+        selectMenuItem(0);
+
     }
 
 
@@ -2173,6 +2983,7 @@
 		$('menu-search').value = '';
 		$('menu-search').placeholder = 'Choose Get or Set';
 		renderMenu();
+		$('menu-search').focus();
 	}
 
 
@@ -2543,14 +3354,120 @@
 
 
     $('menu-search').oninput = renderMenu;
+    $('menu-search').addEventListener('keydown', event => {
+        if ($('node-menu').hidden) return;
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            selectMenuItem(menuActiveIndex + 1);
+            return;
+        }
+
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            selectMenuItem(menuActiveIndex <= 0 ? 0 : menuActiveIndex - 1);
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            menuButtons()[menuActiveIndex]?.click();
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeMenu();
+            canvas.focus();
+        }
+    });
+
+    $('menu-items').addEventListener('pointermove', event => {
+        const button = event.target.closest('.menu-item');
+        if (!button) return;
+        selectMenuItem(menuButtons().indexOf(button));
+    });
+    $('context-duplicate').onclick = () => {
+        closeNodeContextMenu();
+        startDuplicate();
+    };
+    $('context-collapse').onclick = () => {
+        const node = nodes().find(item => item.id === selectedNode);
+        if (node) { node.collapsed = !node.collapsed; closeNodeContextMenu(); changed(node.collapsed ? 'Node collapsed' : 'Node expanded'); }
+    };
+    $('context-rename').onclick = () => {
+        const node = nodes().find(item => item.id === selectedNode);
+        if (!node) return;
+        const title = window.prompt('Node title', node.customTitle ?? definition(node).name);
+        if (title !== null) { node.customTitle = title.trim() || undefined; closeNodeContextMenu(); changed('Node renamed'); }
+    };
+    $('context-find-usages').onclick = findSelectedUsages;
+    $('context-breakpoint').onclick = () => {
+        const node = nodes().find(item => item.id === selectedNode);
+        if (node) { node.breakpoint = !node.breakpoint; closeNodeContextMenu(); changed(node.breakpoint ? 'Breakpoint enabled' : 'Breakpoint disabled'); }
+    };
+    $('context-watch').onclick = () => {
+        const node = nodes().find(item => item.id === selectedNode);
+        if (!node) return;
+        if (contextPinId) {
+            node.watchPins ??= [];
+            node.watchPins = node.watchPins.includes(contextPinId)
+                ? node.watchPins.filter(id => id !== contextPinId)
+                : [...node.watchPins, contextPinId];
+            closeNodeContextMenu();
+            changed('Pin watch toggled');
+        } else {
+            node.watch = !node.watch;
+            closeNodeContextMenu();
+            changed(node.watch ? 'Runtime watch enabled' : 'Runtime watch disabled');
+        }
+    };
+    $('context-align-left').onclick = () => { closeNodeContextMenu(); alignSelection('x'); };
+    $('context-align-top').onclick = () => { closeNodeContextMenu(); alignSelection('y'); };
+    $('context-distribute').onclick = () => { closeNodeContextMenu(); distributeSelection(); };
+    $('context-break-links').onclick = breakSelectedNodeLinks;
+    $('context-delete').onclick = () => {
+        closeNodeContextMenu();
+        deleteSelection();
+    };
     $('back-main').onclick = () => openFunction(null);
+    $('nav-back').onclick = () => navigateHistory('back');
+    $('nav-forward').onclick = () => navigateHistory('forward');
+    $('undo').onclick = undo;
+    $('redo').onclick = redo;
+    $('add-comment').onclick = addComment;
+    $('validate').onclick = validateGraph;
+    $('auto-layout').onclick = autoLayout;
+    $('toggle-snap').onclick = () => {
+        snapToGrid = !snapToGrid;
+        $('toggle-snap').classList.toggle('active', snapToGrid);
+        $('toggle-snap').setAttribute('aria-pressed', String(snapToGrid));
+        status(snapToGrid ? 'Grid snapping enabled' : 'Grid snapping disabled');
+    };
+    $('find-node').onclick = openGraphSearch;
+    $('toggle-minimap').onclick = () => {
+        showMinimap = !showMinimap;
+        $('toggle-minimap').classList.toggle('active', showMinimap);
+        $('toggle-minimap').setAttribute('aria-pressed', String(showMinimap));
+        draw();
+    };
+    $('graph-search-input').oninput = renderGraphSearch;
+    $('graph-search-input').onkeydown = event => {
+        if (event.key === 'Enter') $('graph-search-results').querySelector('.menu-item')?.click();
+        if (event.key === 'Escape') { $('graph-search').hidden = true; canvas.focus(); }
+    };
     $('fit').onclick = fit;
     $('connections').onclick = () => {
         $('connection-panel').hidden = !$('connection-panel').hidden;
+        const active = !$('connection-panel').hidden;
+        $('connections').classList.toggle('active', active);
+        $('connections').setAttribute('aria-pressed', String(active));
         renderConnectionPanel();
     };
     $('close-connections').onclick = () => {
         $('connection-panel').hidden = true;
+        $('connections').classList.remove('active');
+        $('connections').setAttribute('aria-pressed', 'false');
     };
     $('connection-from').onchange = refreshConnectionTargets;
     $('add-connection').onclick = () => {
@@ -2567,6 +3484,8 @@
 
     document.addEventListener('pointerdown', event => {
         if (!event.target.closest('#node-menu')) closeMenu();
+        if (!event.target.closest('#node-context-menu')) closeNodeContextMenu();
+        if (!event.target.closest('#graph-search')) $('graph-search').hidden = true;
     });
 
     window.addEventListener('keydown', event => {
@@ -2575,6 +3494,33 @@
         if (focused?.matches('input,select,textarea')) {
             if (event.key === 'Escape') focused.blur();
             return;
+        }
+
+        const modifier = event.ctrlKey || event.metaKey;
+        if (modifier && event.key.toLowerCase() === 'z') {
+            event.preventDefault();
+            event.shiftKey ? redo() : undo();
+            return;
+        }
+        if (modifier && event.key.toLowerCase() === 'y') {
+            event.preventDefault();
+            redo();
+            return;
+        }
+        if (modifier && event.key.toLowerCase() === 'c') {
+            event.preventDefault(); copySelection(); return;
+        }
+        if (modifier && event.key.toLowerCase() === 'x') {
+            event.preventDefault(); copySelection(true); return;
+        }
+        if (modifier && event.key.toLowerCase() === 'v') {
+            event.preventDefault(); pasteClipboard(); return;
+        }
+        if (modifier && event.key.toLowerCase() === 'a') {
+            event.preventDefault(); selectAllNodes(); return;
+        }
+        if (!modifier && event.key.toLowerCase() === 'f') {
+            event.preventDefault(); frameSelection(); return;
         }
 
         if (
@@ -2606,8 +3552,10 @@
                 return;
             }
             closeMenu();
+            closeNodeContextMenu();
             drag = null;
             selectedNode = null;
+            selectedNodes.clear();
             selectedVariable = null;
             selectedLink = null;
 
@@ -2618,6 +3566,27 @@
 
     window.addEventListener('message', event => {
         const message = event.data;
+
+        if (message.type === 'runtimeEvent') {
+            const runtimeEvent = message.event ?? {};
+            const scriptId = runtimeEvent.scriptId ?? runtimeEvent.context?.scriptId;
+            if (asset && scriptId === asset.id) {
+                const nodeId = runtimeEvent.nodeId ?? runtimeEvent.context?.nodeId;
+                if (nodeId) {
+                    runtimeHighlights.set(nodeId, Date.now());
+                    if (Object.hasOwn(runtimeEvent, 'value')) runtimeValues.set(nodeId, runtimeEvent.value);
+                    if (Object.hasOwn(runtimeEvent, 'value') && runtimeEvent.output) {
+                        runtimePinValues.set(`${nodeId}:${runtimeEvent.output}`, runtimeEvent.value);
+                    }
+                    if (runtimeEvent.type === 'error') {
+                        nodeErrors.set(nodeId, [runtimeEvent.message ?? 'Runtime error']);
+                    }
+                    draw();
+                    setTimeout(draw, 700);
+                }
+            }
+            return;
+        }
 
 		if (message.type === 'armScriptItemDrop') {
 			armedScriptItem = message.item;
@@ -2749,6 +3718,11 @@
             return;
         }
 
+        if (message.type === 'assetIndex') {
+            assetIndex = new Map((message.assets ?? []).map(item => [item.id, item]));
+            return;
+        }
+
         if (message.type === 'dataTypes') {
             dataTypes = Object.fromEntries(
                 message.types.map(item => [
@@ -2787,10 +3761,18 @@
 
         if (message.type === 'load') {
             const firstLoad = asset === null;
+            const incomingSnapshot = JSON.stringify(message.asset);
+            const sameDocument = historySnapshot === incomingSnapshot;
             placement = null;
             clearTimeout(saveTimer);
 
             asset = message.asset;
+			if (firstLoad || !sameDocument) {
+				undoStack = [];
+				redoStack = [];
+			}
+			historySnapshot = incomingSnapshot;
+			updateHistoryControls();
 			const refreshedAnimationStates = syncAnimationStateNodes();
             if (
                 activeFunctionId &&
@@ -2801,6 +3783,8 @@
 
             updateGraphHeader();
             selectedNode = null;
+            selectedNodes.clear();
+            selectedComment = null;
             selectedVariable = null;
             selectedLink = null;
             drag = null;

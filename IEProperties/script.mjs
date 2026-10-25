@@ -902,6 +902,32 @@ function renderGraphProperties() {
 	const value = selection.value;
 	const rows = [];
 
+	if (selection.type === 'uiCanvas') {
+		rows.push(createInput(null, 'width', value.width, 'number'));
+		rows.push(createInput(null, 'height', value.height, 'number'));
+		rows.push(createInput(null, 'background', value.background, 'color'));
+	}
+
+	if (selection.type === 'uiElement') {
+		rows.push(createInput(null, 'name', value.name, 'string'));
+		rows.push(createInput(null, 'x', value.x, 'number'));
+		rows.push(createInput(null, 'y', value.y, 'number'));
+		rows.push(createInput(null, 'width', value.width, 'number'));
+		rows.push(createInput(null, 'height', value.height, 'number'));
+		if (!['panel', 'image'].includes(value.type)) {
+			rows.push(createInput(null, 'text', value.text, 'string'));
+		}
+		if (value.type === 'image') {
+			rows.push(createInput(null, 'source', value.source ?? '', 'string'));
+		}
+		rows.push(createInput(null, 'color', value.color, 'color'));
+		rows.push(createInput(null, 'background', value.background, 'string'));
+		rows.push(createInput(null, 'fontSize', value.fontSize, 'number'));
+		rows.push(createInput(null, 'radius', value.radius, 'number'));
+		rows.push(createInput(null, 'opacity', value.opacity, 'number'));
+		rows.push('<button type="button" id="delete-ui-element" class="danger"><ion-icon name="trash-outline"></ion-icon> Delete Widget</button>');
+	}
+
 	if (selection.type === 'variable') {
 		rows.push(createInput(null, 'name', value.name, 'string'));
 
@@ -1021,7 +1047,7 @@ function renderGraphProperties() {
                         type="button"
                         class="switch-case-remove"
                         ${cases.length <= 1 ? 'disabled' : ''}
-                    >×</button>
+                    ><ion-icon name="close"></ion-icon></button>
                 </div>
             `).join('')}
 
@@ -1045,7 +1071,9 @@ function renderGraphProperties() {
 	const heading = {
 		node: 'Node Properties',
 		variable: 'Variable Properties',
-		function: 'Function Properties'
+		function: 'Function Properties',
+		uiCanvas: 'Canvas Properties',
+		uiElement: 'Widget Properties'
 	}[selection.type] ?? 'Properties';
 
 	properties.innerHTML = `
@@ -1060,6 +1088,9 @@ function renderGraphProperties() {
     `;
 
 	bindGraphPropertyInputs();
+	properties.querySelector('#delete-ui-element')?.addEventListener('click', () => {
+		postPropertyUpdate(selection.type, selection.id, '__delete', true);
+	});
 	bindFunctionParameterInputs();
 	bindSwitchCaseInputs();
 }
@@ -1154,7 +1185,7 @@ function renderFunctionParameters(parameters, direction) {
                     </select>
 
                     <button type="button" class="parameter-delete"
-                        title="Remove parameter">×</button>
+                        title="Remove parameter"><ion-icon name="close"></ion-icon></button>
                 </div>
             `).join('')}
         </div>
@@ -2040,7 +2071,7 @@ function createAssetArray(values, itemType) {
 			? 'material-preview'
 			: null
 	)}
-                    <button type="button" class="asset-remove" data-remove-index="${index}" title="Remove">×</button>
+                    <button type="button" class="asset-remove" data-remove-index="${index}" title="Remove"><ion-icon name="close"></ion-icon></button>
                 </div>
             `).join('')}
             <button type="button" class="asset-add">+ Add ${escapeHtml(formatName(itemType))}</button>

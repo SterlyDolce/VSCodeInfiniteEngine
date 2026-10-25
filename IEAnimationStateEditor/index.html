@@ -9,30 +9,31 @@
         default-src 'none';
         style-src {{CSP_SOURCE}} 'unsafe-inline';
         script-src {{CSP_SOURCE}} 'nonce-{{NONCE}}';
+        connect-src {{CSP_SOURCE}};
     ">
 
     <meta name="viewport"
           content="width=device-width, initial-scale=1">
 
-    <link rel="stylesheet" href="{{STYLE_URI}}">
+    <link rel="stylesheet" href="{{SHARED_STYLE_URI}}">
 
     <title>Infinite Animation State Editor</title>
 </head>
 
-<body>
+<body data-ie-editor="animation-state">
     <div id="app">
         <section id="graph-area">
             <canvas id="graph" tabindex="0"></canvas>
 
-			<div id="toolbar">
-				<div class="toolbar-actions toolbar-actions-start">
-					<button id="back-machine" type="button" hidden>← State Machine</button>
+			<div id="toolbar" role="toolbar" aria-label="Animation state controls">
+				<div id="actions" class="toolbar-actions toolbar-actions-start">
+					<button id="back-machine" type="button" hidden><ion-icon name="arrow-back"></ion-icon> State Machine</button>
 				</div>
 				<span id="graph-title">Animation State</span>
-				<div class="toolbar-actions toolbar-actions-end">
-					<button id="fit" type="button">Fit</button>
-					<button id="zoom-out" type="button" aria-label="Zoom out">−</button>
-					<button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+				<div id="actions" class="toolbar-actions toolbar-actions-end">
+					<button id="fit" type="button" title="Fit Graph" aria-label="Fit Graph"><ion-icon name="scan-outline"></ion-icon></button>
+					<button id="zoom-out" type="button" aria-label="Zoom out"><ion-icon name="remove"></ion-icon></button>
+					<button id="zoom-in" type="button" aria-label="Zoom in"><ion-icon name="add"></ion-icon></button>
 				</div>
 			</div>
 
@@ -41,6 +42,7 @@
         </section>
     </div>
 
+    <script type="module" nonce="{{NONCE}}" src="{{SHARED_UI_URI}}"></script>
     <script
         nonce="{{NONCE}}"
         type="module"

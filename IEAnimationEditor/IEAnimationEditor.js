@@ -29,6 +29,7 @@ class IEAnimationEditor {
             enableScripts: true,
             localResourceRoots: [
                 root,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
                 vscode.Uri.joinPath(
                     this.context.extensionUri,
                     'node_modules'
@@ -42,9 +43,8 @@ class IEAnimationEditor {
         );
 
         const replacements = {
-            '{{STYLE_URI}}': resource(
-                'IEAnimationEditor', 'style.css'
-            ),
+            '{{SHARED_STYLE_URI}}': resource('Shared', 'ui.css'),
+            '{{SHARED_UI_URI}}': resource('Shared', 'ui.js'),
             '{{SCRIPT_URI}}': resource(
                 'IEAnimationEditor', 'script.mjs'
             ),

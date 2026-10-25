@@ -29,6 +29,7 @@ const IEAnimationEditor = require('./IEAnimationEditor/IEAnimationEditor');
 const IEAnimationStateEditor = require('./IEAnimationStateEditor/IEAnimationStateEditor');
 const IESkeletonEditor = require('./IESkeletonEditor/IESkeletonEditor');
 const IEWorldEditor = require('./IEWorldEditor/IEWorldEditor');
+const IUGEditor = require('./IUGEditor/IUGEditor');
 const IEAssetExplorer = require('./IEAssetExplorer');
 const IEProjectEditor = require('./IEProjectEditor/IEProjectEditor');
 const IEWelcomeEditor = require('./IEWelcomeEditor');
@@ -366,7 +367,14 @@ async function activate(context) {
 		void reportRuntimeError(error);
 	});
 	sceneEditor.setRuntimeErrorHandler(error => {
+		void IEVisualScriptEditor.broadcastRuntimeEvent({ type: 'error', ...error });
 		void reportRuntimeError(error);
+	});
+	sceneEditor.setRuntimeTraceHandler(trace => {
+		void IEVisualScriptEditor.broadcastRuntimeEvent({ type: 'trace', ...trace });
+		if (trace.breakpoint) {
+			void vscode.commands.executeCommand('infinite.pause');
+		}
 	});
 
 	sceneEditor.setPrintHandler((...values) => {
@@ -689,6 +697,15 @@ async function activate(context) {
 				}
 			}
 		);
+
+	const stepCommand = vscode.commands.registerCommand(
+		'infinite.step',
+		async () => {
+			const activeSceneUriString = context.workspaceState.get('activeSceneUri');
+			if (!activeSceneUriString) return;
+			await sceneEditor.stepPlay(vscode.Uri.parse(activeSceneUriString));
+		}
+	);
 
 
 	// Scene Editor Provider
@@ -1762,6 +1779,7 @@ async function activate(context) {
 
 	IEActorAssetEditor.outlinerProvider = outlinerProvider;
 	IESkeletonEditor.outlinerProvider = outlinerProvider;
+	IUGEditor.outlinerProvider = outlinerProvider;
 
 	outlinerProvider.setReparentHandler(
 		async (uri, componentId, parentId) => {
@@ -1794,6 +1812,7 @@ async function activate(context) {
 	IEAssetEditorProvider.register('animationState', IEAnimationStateEditor);
 	IEAssetEditorProvider.register('skeleton', IESkeletonEditor);
 	IEAssetEditorProvider.register('terrain', IEWorldEditor);
+	IEAssetEditorProvider.register('ui', IUGEditor);
 
 	const selectSkeletonNodeCommand = vscode.commands.registerCommand(
 		'infinite.selectSkeletonNode',
@@ -1801,6 +1820,16 @@ async function activate(context) {
 			const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
 			if (tab?.input?.uri?.toString() !== uri) return;
 			await IESkeletonEditor.editors.get(uri)?.select(nodeId);
+		}
+	);
+
+	const selectUIElementCommand = vscode.commands.registerCommand(
+		'infinite.selectUIElement',
+		async ({ uri, elementId }) => {
+			await IUGEditor.panels.get(uri)?.webview.postMessage({
+				type: 'selectElement',
+				id: elementId
+			});
 		}
 	);
 
@@ -2063,6 +2092,7 @@ async function activate(context) {
 								case 'script':
 								case 'material':
 								case 'terrain':
+								case 'ui':
 									if (data.target === 'functionParameter') {
 										return await propertiesProvider.updateFunctionParameter({
 											functionId: data.id,
@@ -2117,6 +2147,7 @@ async function activate(context) {
 		stopCommand,
 		pauseCommand,
 		continueCommand,
+		stepCommand,
 		workspaceListener,
 		modelViewerProvider,
 		assetEditorProvider,
@@ -2134,6 +2165,7 @@ async function activate(context) {
 		deleteComponentCommand,
 		selectAnimationStateItemCommand,
 		selectSkeletonNodeCommand,
+		selectUIElementCommand,
 		addAnimationLayerCommand,
 		addAnimationParameterCommand,
 		deleteAnimationLayerCommand,
@@ -2361,6 +2393,8 @@ async function refreshOutlinerFromActiveScene(
 				outlinerProvider.setActorAsset(asset, input.uri);
 			} else if (asset.type === 'skeleton') {
 				outlinerProvider.setSkeleton(asset, input.uri);
+			} else if (asset.type === 'ui') {
+				outlinerProvider.setUIAsset(asset, input.uri);
 			} else {
 				outlinerProvider.clear();
 			}

@@ -55,6 +55,8 @@ class IEPropertiesProvider {
 
 			localResourceRoots: [
 				folder,
+				vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
+				vscode.Uri.joinPath(this.context.extensionUri, 'node_modules'),
 				threeFolder
 			]
 		};
@@ -64,11 +66,16 @@ class IEPropertiesProvider {
 			'index.html'
 		);
 
-		const styleUri = webview.asWebviewUri(
+		const sharedStyleUri = webview.asWebviewUri(
 			vscode.Uri.joinPath(
-				folder,
-				'style.css'
+				this.context.extensionUri,
+				'Shared',
+				'ui.css'
 			)
+		);
+
+		const sharedUiUri = webview.asWebviewUri(
+			vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.js')
 		);
 
 		const scriptUri = webview.asWebviewUri(
@@ -100,7 +107,8 @@ class IEPropertiesProvider {
 		html = html
 			.replaceAll('{{CSP_SOURCE}}', webview.cspSource)
 			.replaceAll('{{NONCE}}', nonce)
-			.replaceAll('{{STYLE_URI}}', styleUri.toString())
+			.replaceAll('{{SHARED_STYLE_URI}}', sharedStyleUri.toString())
+			.replaceAll('{{SHARED_UI_URI}}', sharedUiUri.toString())
 			.replaceAll('{{SCRIPT_URI}}', scriptUri.toString())
 			.replaceAll('{{THREE_URI}}', threeUri.toString());
 
@@ -250,7 +258,7 @@ class IEPropertiesProvider {
 
 		if (
 			editor?.type !== 'asset' ||
-			!['script', 'material', 'terrain'].includes(editor.assetType)
+			!['script', 'material', 'terrain', 'ui'].includes(editor.assetType)
 		) return;
 
 		const selection = this.graphSelection?.selection;
@@ -298,6 +306,11 @@ class IEPropertiesProvider {
 			return IEWorldEditor.panels?.get(uri) ?? null;
 		}
 
+		if (editor?.assetType === 'ui') {
+			const IUGEditor = require('../IUGEditor/IUGEditor');
+			return IUGEditor.panels?.get(uri) ?? null;
+		}
+
 		const IEVisualScriptEditor = require(
 			'../IEVisualScriptEditor/IEVisualScriptEditor'
 		);
@@ -314,7 +327,7 @@ class IEPropertiesProvider {
 
 		if (
 			editor?.type !== 'asset' ||
-			!['script', 'material', 'terrain'].includes(editor.assetType) ||
+			!['script', 'material', 'terrain', 'ui'].includes(editor.assetType) ||
 			editor.uri !== data.uri
 		) {
 			console.log('[IEProperties] Graph selection rejected', {
@@ -1156,7 +1169,7 @@ class IEPropertiesProvider {
 
 		if (
 			this.activeEditor?.type === 'asset' &&
-			['script', 'material', 'terrain'].includes(
+			['script', 'material', 'terrain', 'ui'].includes(
 				this.activeEditor.assetType
 			)
 		) {

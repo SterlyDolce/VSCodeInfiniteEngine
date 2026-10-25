@@ -20,7 +20,11 @@ class IEAnimationStateEditor {
 
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [editorRoot]
+            localResourceRoots: [
+                editorRoot,
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared'),
+                vscode.Uri.joinPath(this.context.extensionUri, 'node_modules')
+            ]
         };
 
         const resource = filename =>
@@ -41,7 +45,12 @@ class IEAnimationStateEditor {
         );
 
         const replacements = {
-            '{{STYLE_URI}}': resource('style.css'),
+            '{{SHARED_STYLE_URI}}': panel.webview.asWebviewUri(
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.css')
+            ).toString(),
+            '{{SHARED_UI_URI}}': panel.webview.asWebviewUri(
+                vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.js')
+            ).toString(),
             '{{SCRIPT_URI}}': resource('script.mjs'),
             '{{CSP_SOURCE}}': panel.webview.cspSource,
             '{{NONCE}}': nonce

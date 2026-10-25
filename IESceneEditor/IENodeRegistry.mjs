@@ -120,6 +120,7 @@ export class IENodeRegistry {
             type: node.type,
             name: node.name,
             category: node.category,
+            description: node.description ?? '',
             inputs: node.inputs,
             outputs: node.outputs
         }));

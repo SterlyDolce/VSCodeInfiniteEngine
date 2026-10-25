@@ -265,6 +265,26 @@ registerTemplate('animationState', {
 });
 
 // =====================================================
+// 9. USER INTERFACE GRAPH (IUG)
+// =====================================================
+
+registerTemplate('ui', {
+    label: 'User Interface',
+    description: 'Design a WYSIWYG interface with the IUG Editor',
+    icon: 'layout',
+
+    create: () => ({
+        version: 1,
+        canvas: {
+            width: 1280,
+            height: 720,
+            background: '#15171c'
+        },
+        elements: []
+    })
+});
+
+// =====================================================
 // EXPORTS
 // =====================================================
 

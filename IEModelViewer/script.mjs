@@ -94,8 +94,8 @@ function updateAnimationControls() {
     animationStop.disabled = !hasClip;
     animationTimeline.disabled = !hasClip;
 
-    animationPlay.textContent =
-        animationPlaying ? '❚❚' : '▶';
+    const playIcon = animationPlay.querySelector('ion-icon');
+    if (playIcon) playIcon.name = animationPlaying ? 'pause' : 'play';
 
     animationPlay.title =
         animationPlaying

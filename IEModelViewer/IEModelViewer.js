@@ -148,11 +148,16 @@ class IEModelViewer {
             )
         );
 
-        const styleUri = webview.asWebviewUri(
+        const sharedStyleUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
-                viewerDirectory,
-                'style.css'
+                this.context.extensionUri,
+                'Shared',
+                'ui.css'
             )
+        );
+
+        const sharedUiUri = webview.asWebviewUri(
+            vscode.Uri.joinPath(this.context.extensionUri, 'Shared', 'ui.js')
         );
 
         const threeUri = webview.asWebviewUri(
@@ -180,7 +185,8 @@ class IEModelViewer {
 
         return html
             .replaceAll('{{scriptUri}}', scriptUri.toString())
-            .replaceAll('{{styleUri}}', styleUri.toString())
+            .replaceAll('{{sharedStyleUri}}', sharedStyleUri.toString())
+            .replaceAll('{{sharedUiUri}}', sharedUiUri.toString())
             .replaceAll('{{threeUri}}', threeUri.toString())
             .replaceAll('{{addonsUri}}', addonsUri.toString())
             .replaceAll('{{cspSource}}', webview.cspSource)
