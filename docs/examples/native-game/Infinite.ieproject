@@ -1,0 +1,6 @@
+{
+    "name": "Native Documentation Example",
+    "version": 1,
+    "entry": "main.js",
+    "startScene": "Scenes/Main.iescene"
+}

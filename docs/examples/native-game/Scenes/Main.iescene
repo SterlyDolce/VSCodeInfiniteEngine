@@ -1,0 +1,147 @@
+{
+    "name": "Main",
+    "version": 1,
+    "actors": [
+        {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "name": "World",
+            "type": "World",
+            "components": [
+                {
+                    "id": "11000000-0000-4000-8000-000000000001",
+                    "type": "script",
+                    "name": "script",
+                    "enabled": true,
+                    "parent": null,
+                    "script": {
+                        "type": "script",
+                        "id": "20000000-0000-4000-8000-000000000001"
+                    }
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000002",
+                    "type": "terrain",
+                    "name": "terrain",
+                    "enabled": true,
+                    "parent": null,
+                    "terrain": null,
+                    "physics": true,
+                    "friction": 0.8,
+                    "restitution": 0,
+                    "castShadow": false,
+                    "receiveShadow": true
+                }
+            ]
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "name": "Environment",
+            "type": "Environment",
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": [
+                {
+                    "id": "11000000-0000-4000-8000-000000000003",
+                    "type": "script",
+                    "name": "script",
+                    "enabled": true,
+                    "parent": null,
+                    "script": null
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000004",
+                    "type": "sky",
+                    "name": "sky",
+                    "enabled": true,
+                    "parent": null,
+                    "topColor": "#5fa9ff",
+                    "horizonColor": "#b9dcff",
+                    "bottomColor": "#eaf4ff"
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000005",
+                    "type": "directionalLight",
+                    "name": "directionalLight",
+                    "enabled": true,
+                    "parent": null,
+                    "position": [0, 10, 0],
+                    "rotation": [-0.8, -0.5, 0],
+                    "scale": [1, 1, 1],
+                    "color": "#ffffff",
+                    "intensity": 2,
+                    "castShadow": true
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000006",
+                    "type": "ambientLight",
+                    "name": "ambientLight",
+                    "enabled": true,
+                    "parent": null,
+                    "skyColor": "#ffffff",
+                    "groundColor": "#444444",
+                    "intensity": 1
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000007",
+                    "type": "fog",
+                    "name": "fog",
+                    "enabled": false,
+                    "parent": null,
+                    "mode": "linear",
+                    "color": "#aabbd0",
+                    "near": 10,
+                    "far": 150,
+                    "density": 0.01
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000008",
+                    "type": "volumetricCloud",
+                    "name": "volumetricCloud",
+                    "enabled": false,
+                    "parent": null,
+                    "coverage": 0.48,
+                    "density": 0.8,
+                    "scale": 0.012,
+                    "height": 120,
+                    "thickness": 60,
+                    "windX": 0.8,
+                    "windZ": 0.25,
+                    "color": "#ffffff",
+                    "shadowColor": "#78869b"
+                }
+            ]
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000003",
+            "name": "Camera",
+            "type": "Camera",
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "position": [0, 3, 8],
+            "rotation": [-0.25, 0, 0],
+            "scale": [1, 1, 1],
+            "components": [
+                {
+                    "id": "11000000-0000-4000-8000-000000000009",
+                    "type": "script",
+                    "name": "script",
+                    "enabled": true,
+                    "parent": null,
+                    "script": null
+                },
+                {
+                    "id": "11000000-0000-4000-8000-000000000010",
+                    "type": "camera",
+                    "name": "camera",
+                    "enabled": true,
+                    "parent": null,
+                    "projection": "perspective",
+                    "fov": 75,
+                    "near": 0.1,
+                    "far": 1000,
+                    "orthographicSize": 10,
+                    "priority": 0,
+                    "active": true
+                }
+            ]
+        }
+    ]
+}

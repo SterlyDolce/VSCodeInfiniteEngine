@@ -13,6 +13,78 @@ Prefer the Infinite Engine editors for interactive authoring. When editing the
 serialized files directly, preserve their schemas, IDs, references, and
 hierarchies exactly.
 
+## Native game authoring requirements
+
+When a user asks to create, build, prototype, or improve a game for Infinite
+Engine, the result must be a native Infinite Engine project. Build the visible
+game world with IE scenes, actors, components, cameras, lights, geometry,
+materials, terrain, UI assets, and the public runtime APIs that the engine
+provides.
+
+Do not substitute a browser game for an Infinite Engine game. Unless the user
+explicitly requests a browser-based implementation:
+
+- Do not create DOM elements or use HTML, SVG, Canvas 2D, or a separate WebGL
+  renderer to display the game world or its interface.
+- Do not cover the Scene Editor or play surface with a fullscreen browser
+  overlay.
+- Do not manually draw actors, terrain, lighting, or HUD elements from
+  `main.js`.
+- Do not treat importing `Game` from `@infinite/Runtime` as sufficient use of
+  Infinite Engine when rendering and interaction bypass the engine.
+
+For a playable game, create or update the complete project structure needed to
+open and run it in IE: `Infinite.ieproject`, at least one `.iescene`, required
+`.ieasset` files, and the entry script when gameplay logic is needed. The start
+scene must contain the native camera, lighting, world content, and actors that
+the player sees in play mode. Use `main.js` to coordinate game behavior, not to
+replace scene rendering or the asset system.
+
+Before implementing a game request, inspect an existing valid project or the
+relevant engine serializers and templates to determine the current component
+and asset schemas. Do not invent serialized component shapes from this guide's
+abbreviated examples. After implementation, verify that the project opens in
+the Infinite Engine editors and runs through IE play mode.
+
+## Required documentation
+
+The authoritative authoring documentation is bundled with the Infinite Engine
+extension under `docs/`. Before creating or modifying an Infinite Engine game,
+read the documentation index and the references relevant to the task:
+
+1. `docs/README.md`
+2. `docs/project-format.md`
+3. `docs/scene-format.md`
+4. `docs/components.md`
+5. `docs/assets.md`
+6. `docs/runtime-api.md`
+7. `docs/input-and-gameplay.md`
+8. `docs/validation.md`
+
+Also read `docs/visual-scripting.md` before creating or modifying visual
+scripts, and `docs/ui.md` before creating or modifying native UI. Inspect
+`docs/examples/native-game/` before generating a new game project.
+
+Documentation work under `docs/` is additionally governed by
+`docs/AGENTS.md`. Do not begin implementation until the documentation relevant
+to the requested feature has been read. If documentation conflicts with the
+implementation, inspect the source, preserve working behavior, and report the
+discrepancy.
+
+These paths are relative to the Infinite Engine extension repository. An agent
+working in a separate game-only workspace cannot discover extension-bundled
+documentation automatically. In that situation, read the published extension
+documentation at:
+
+`https://github.com/SterlyDolce/VSCodeInfiniteEngine/tree/main/docs`
+
+Use the bundled local documentation when it is available because it matches the
+checked-out extension version. Otherwise, use the published documentation from
+the matching repository branch or release. If neither is accessible, make the
+extension repository available in the workspace or copy this guide and the
+required `docs/` files into the game project. Do not proceed by guessing when
+the referenced documentation is unavailable.
+
 ## Game project layout
 
 A normal IE game project looks like this:
@@ -135,6 +207,11 @@ module.exports = MyGame;
 Use `print(value)` for the Infinite Engine output channel. Do not import files
 from the installed extension by relative filesystem path; use
 `@infinite/Runtime`.
+
+The entry script is a gameplay lifecycle hook, not an alternate rendering
+surface. Game code must not create a canvas, DOM-based HUD, or its own renderer
+unless the user specifically asks for browser-rendered content. Prefer native
+actors, components, visual scripts, and UI assets for gameplay and presentation.
 
 Keep `onUpdate` fast, deterministic, and free of blocking work. Release any
 listeners or external resources created by game code during teardown.

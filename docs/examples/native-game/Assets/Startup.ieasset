@@ -1,0 +1,57 @@
+{
+    "id": "20000000-0000-4000-8000-000000000001",
+    "name": "Startup",
+    "type": "script",
+    "data": {
+        "nodes": [
+            {
+                "id": "21000000-0000-4000-8000-000000000001",
+                "type": "event.onbegin",
+                "position": [40, 100],
+                "pins": [
+                    {
+                        "id": "22000000-0000-4000-8000-000000000001",
+                        "name": "exec",
+                        "type": "execution",
+                        "direction": "output"
+                    }
+                ]
+            },
+            {
+                "id": "21000000-0000-4000-8000-000000000002",
+                "type": "debug.print",
+                "position": [340, 100],
+                "pins": [
+                    {
+                        "id": "22000000-0000-4000-8000-000000000002",
+                        "name": "exec",
+                        "type": "execution",
+                        "direction": "input"
+                    },
+                    {
+                        "id": "22000000-0000-4000-8000-000000000003",
+                        "name": "value",
+                        "type": "any",
+                        "direction": "input",
+                        "value": "Native example started"
+                    },
+                    {
+                        "id": "22000000-0000-4000-8000-000000000004",
+                        "name": "exec",
+                        "type": "execution",
+                        "direction": "output"
+                    }
+                ]
+            }
+        ],
+        "links": [
+            {
+                "id": "23000000-0000-4000-8000-000000000001",
+                "from": "22000000-0000-4000-8000-000000000001",
+                "to": "22000000-0000-4000-8000-000000000002"
+            }
+        ],
+        "variables": [],
+        "functions": []
+    }
+}
