@@ -35,6 +35,20 @@ class IEMeshRef extends IEReference {
     }
 }
 
+const createReferenceType = type => class extends IEReference {
+    constructor(id = null) {
+        super(type, typeof id === 'object' && id !== null ? id.id : id);
+    }
+};
+
+const IEComponentRef = createReferenceType('component');
+const IETransformableRef = createReferenceType('transformable');
+const IETextureRef = createReferenceType('texture');
+const IEAnimationRef = createReferenceType('animation');
+const IEAnimationStateRef = createReferenceType('animationState');
+const IEAnimationStateValueRef = createReferenceType('animationstate');
+const IEUIRef = createReferenceType('ui');
+
 class IEMaterialRef extends IEReference {
     constructor(id = null) {
         super('material', id);
@@ -51,6 +65,13 @@ module.exports = {
     IEReference,
     IEActorRef,
     IEMeshRef,
+    IEComponentRef,
+    IETransformableRef,
+    IETextureRef,
+    IEAnimationRef,
+    IEAnimationStateRef,
+    IEAnimationStateValueRef,
+    IEUIRef,
     IEMaterialRef,
     IEScriptRef
 };

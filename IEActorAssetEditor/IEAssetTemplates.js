@@ -276,6 +276,7 @@ registerTemplate('ui', {
     create: () => ({
         version: 1,
         canvas: {
+            type: 'menu',
             width: 1280,
             height: 720,
             background: '#15171c'

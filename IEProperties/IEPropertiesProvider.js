@@ -1,6 +1,7 @@
 // @ts-nocheck
 const vscode = require('vscode');
 const fs = require('fs');
+const path = require('path');
 const IEScene = require('../IEScene');
 const IEType = require('../Types/IEType');
 const IEAssetManager = require('../IEAssetManager');
@@ -1207,6 +1208,14 @@ class IEPropertiesProvider {
 						name: asset.name,
 						type: asset.type
 					}));
+					const sceneUris = await vscode.workspace.findFiles(
+						new vscode.RelativePattern(workspace, '**/*.iescene')
+					);
+					assets.push(...sceneUris.map(uri => ({
+						id: uri.toString(),
+						name: path.basename(uri.fsPath, path.extname(uri.fsPath)),
+						type: 'scene'
+					})));
 
 					this.graphAssets.set(workspace.uri.fsPath, assets);
 				}

@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const IEAssetManager = require('./IEAssetManager');
 
 const IMAGE_LIMIT = 64 * 1024 * 1024;
+const FONT_LIMIT = 32 * 1024 * 1024;
 const MODEL_LIMIT = 256 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -31,6 +32,7 @@ class IEAssetImporter {
         this.assetManager = options.assetManager ?? new IEAssetManager(this.projectPath);
         this.handlers = new Map();
         this.registerHandler(new IEImageImportHandler());
+        this.registerHandler(new IEFontImportHandler());
         this.registerHandler(new IEModelImportHandler());
     }
 
@@ -122,7 +124,8 @@ class IEAssetImporter {
     }
 
     async writeSingle(asset, previous) {
-        const folder = path.join(this.assetManager.assetsPath, 'Textures');
+        const assetFolder = asset.type === 'font' ? 'Fonts' : 'Textures';
+        const folder = path.join(this.assetManager.assetsPath, assetFolder);
         await fs.mkdir(folder, { recursive: true });
         let destination = previous?.entry.path;
         if (!destination) {
@@ -220,6 +223,44 @@ class IEImageImportHandler {
     }
 }
 
+class IEFontImportHandler {
+    constructor() {
+        this.name = 'font';
+        this.extensions = ['ttf', 'otf', 'woff', 'woff2'];
+    }
+    async detect(filePath) {
+        const bytes = await readHeader(filePath, 4, FONT_LIMIT);
+        const signature = bytes.toString('ascii');
+        return signature === 'OTTO' || signature === 'wOFF' || signature === 'wOF2' ||
+            bytes.toString('hex') === '00010000' || signature === 'true';
+    }
+    async import(filePath, importer) {
+        const stats = await validateFile(filePath, FONT_LIMIT);
+        const bytes = await fs.readFile(filePath);
+        if (bytes.length !== stats.size) throw new Error('Source font changed during import.');
+        const extension = path.extname(filePath).slice(1).toLowerCase();
+        const mimeTypes = {
+            ttf: 'font/ttf',
+            otf: 'font/otf',
+            woff: 'font/woff',
+            woff2: 'font/woff2'
+        };
+        const family = path.basename(filePath, path.extname(filePath));
+        const asset = {
+            id: crypto.randomUUID(),
+            type: 'font',
+            name: family,
+            data: {
+                family,
+                mimeType: mimeTypes[extension],
+                source: `data:${mimeTypes[extension]};base64,${bytes.toString('base64')}`
+            },
+            import: { key: 'font:source:0' }
+        };
+        return importer.saveAssets(filePath, this.name, [asset]);
+    }
+}
+
 class IEModelImportHandler {
     constructor() { this.name = 'gltf'; this.extensions = ['glb', 'gltf']; }
     async detect(filePath) {
@@ -312,5 +353,6 @@ async function atomicWrite(destination, content) {
 
 module.exports = IEAssetImporter;
 module.exports.IEImageImportHandler = IEImageImportHandler;
+module.exports.IEFontImportHandler = IEFontImportHandler;
 module.exports.IEModelImportHandler = IEModelImportHandler;
 module.exports._internals = { detectImage, replaceIds, safeName, validateGltfDependencies };

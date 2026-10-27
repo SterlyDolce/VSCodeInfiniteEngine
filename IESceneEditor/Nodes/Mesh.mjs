@@ -30,16 +30,19 @@ nodeRegistry.register('mesh.set', {
         { name: 'Then', type: 'execution' }
     ],
 
-    async execute({ readInput, engine }) {
+    execute({ readInput, engine }) {
         const component = readInput('Component');
         const geometryId = readInput('Geometry');
-        const materialIds = readInput('Materials');
+        const materials = readInput('Materials');
+        const materialIds = Array.isArray(materials)
+            ? materials
+            : (materials ? [materials] : []);
 
         if (!component?.isMesh) {
             return 'Then';
         }
 
-        await engine.setMesh(
+        engine.setMesh(
             component,
             geometryId,
             materialIds

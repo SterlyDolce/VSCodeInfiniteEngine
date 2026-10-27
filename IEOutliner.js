@@ -21,17 +21,20 @@ class IEOutlinerProvider {
             'application/vnd.infinite.component',
 			'application/vnd.infinite.actor',
 			'application/vnd.infinite.script-item',
+			'application/vnd.infinite.ui-element',
 			'text/plain'
         ];
 
         this.dropMimeTypes = [
             'application/vnd.infinite.component',
-            'application/vnd.infinite.actor'
+            'application/vnd.infinite.actor',
+			'application/vnd.infinite.ui-element'
         ];
 
         this.reparentSceneActor = null;
 		this.scriptDrag = null;
 		this.scriptDragHandler = null;
+		this.reparentUIElement = null;
     }
 
 
@@ -44,8 +47,27 @@ class IEOutlinerProvider {
 	setScriptDragHandler(handler) {
 		this.scriptDragHandler = handler;
 	}
+	setUIReparentHandler(handler) {
+		this.reparentUIElement = handler;
+	}
 
     async handleDrag(sources, dataTransfer) {
+		if (this.mode === 'ui' && this.uiAsset) {
+			const items = sources.filter(item =>
+				!item?.__uiRoot &&
+				this.uiAsset.elements.some(element => element.id === item?.id)
+			);
+			if (items.length !== 1) return;
+			dataTransfer.set(
+				'application/vnd.infinite.ui-element',
+				new vscode.DataTransferItem(JSON.stringify({
+					uri: this.uiAsset.uri,
+					elementId: items[0].id
+				}))
+			);
+			return;
+		}
+
 		if (this.mode === 'script' && this.script) {
 			const items = sources.filter(item =>
 				['variable', 'function'].includes(item?.kind) &&
@@ -157,6 +179,41 @@ class IEOutlinerProvider {
 	}
 
     async handleDrop(target, dataTransfer) {
+		if (this.mode === 'ui' && this.uiAsset) {
+			const item = dataTransfer.get('application/vnd.infinite.ui-element');
+			if (!item) return;
+			let dragged;
+			try {
+				dragged = JSON.parse(await item.asString());
+			} catch {
+				return;
+			}
+			if (dragged.uri !== this.uiAsset.uri) return;
+			const child = this.uiAsset.elements.find(element =>
+				element.id === dragged.elementId
+			);
+			if (!child) return;
+			const parentId = !target || target.__uiRoot ? null : target.id;
+			if (parentId === child.id || (child.parent ?? null) === parentId) return;
+
+			let currentId = parentId;
+			while (currentId) {
+				if (currentId === child.id) return;
+				const current = this.uiAsset.elements.find(element =>
+					element.id === currentId
+				);
+				if (!current) return;
+				currentId = current.parent ?? null;
+			}
+
+			await this.reparentUIElement?.(
+				this.uiAsset.uri,
+				child.id,
+				parentId
+			);
+			return;
+		}
+
 
         if (this.mode === 'scene') {
             const item = dataTransfer.get(
@@ -573,7 +630,9 @@ class IEOutlinerProvider {
 
             const item = new vscode.TreeItem(
                 element.name || 'Unnamed Widget',
-                vscode.TreeItemCollapsibleState.None
+                this.uiAsset.elements.some(child => child.parent === element.id)
+                    ? vscode.TreeItemCollapsibleState.Expanded
+                    : vscode.TreeItemCollapsibleState.None
             );
             item.id = `ui:${this.uiAsset.uri}:${element.id}`;
             item.description = element.type;
@@ -778,8 +837,10 @@ class IEOutlinerProvider {
         if (this.mode === 'ui') {
             if (!this.uiAsset) return [];
             if (!element) return [this.uiAsset.root];
-            if (element.__uiRoot) return [...this.uiAsset.elements].reverse();
-            return [];
+            const parentId = element.__uiRoot ? null : element.id;
+            return this.uiAsset.elements.filter(item =>
+				(item.parent ?? null) === parentId
+			).reverse();
         }
 
         if (this.mode === 'skeleton') {

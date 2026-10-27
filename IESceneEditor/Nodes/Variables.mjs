@@ -1,32 +1,7 @@
 // @ts-nocheck
 
 import { nodeRegistry } from '../IENodeRegistry.mjs';
-
-function copyRuntimeValue(value) {
-    if (value === null || value === undefined) {
-        return value;
-    }
-
-    // Preserve live Three.js references
-    if (value?.isObject3D === true) {
-        return value;
-    }
-
-    // Preserve other runtime objects that must not be cloned
-    if (
-        typeof value === 'object' &&
-        !Array.isArray(value) &&
-        (
-            value.type === 'actor' ||
-            value.type === 'component' ||
-            value.type === 'mesh'
-        )
-    ) {
-        return value;
-    }
-
-    return structuredClone(value);
-}
+import { copyRuntimeValue } from './RuntimeValue.mjs';
 
 
 // GET VARIABLE

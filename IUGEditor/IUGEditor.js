@@ -3,9 +3,20 @@
 const vscode = require('vscode');
 const fs = require('fs');
 const crypto = require('crypto');
+const IEAssetManager = require('../IEAssetManager');
 
 class IUGEditor {
     static panels = new Map();
+
+    static async reparentElement(uri, elementId, parentId) {
+        const panel = IUGEditor.panels.get(uri);
+        if (!panel) return false;
+        return panel.webview.postMessage({
+            type: 'reparentElement',
+            elementId,
+            parentId
+        });
+    }
     static outlinerProvider = null;
 
     constructor(context, propertiesProvider) {
@@ -54,10 +65,37 @@ class IUGEditor {
             return asset;
         };
 
-        const postAsset = () => panel.webview.postMessage({
-            type: 'load',
-            asset: readAsset()
-        });
+        const postAsset = async () => {
+            const workspace = vscode.workspace.getWorkspaceFolder(document.uri);
+            const textures = [];
+            const fonts = [];
+            if (workspace) {
+                const manager = new IEAssetManager(workspace.uri.fsPath);
+                await manager.scan();
+                for (const entry of manager.getAssets('texture')) {
+                    const texture = await manager.getAsset(entry.id);
+                    if (typeof texture?.data?.image === 'string') {
+                        textures.push({ id: entry.id, image: texture.data.image });
+                    }
+                }
+                for (const entry of manager.getAssets('font')) {
+                    const font = await manager.getAsset(entry.id);
+                    if (typeof font?.data?.source === 'string') {
+                        fonts.push({
+                            id: entry.id,
+                            family: font.data.family ?? font.name ?? entry.name,
+                            source: font.data.source
+                        });
+                    }
+                }
+            }
+            return panel.webview.postMessage({
+                type: 'load',
+                asset: readAsset(),
+                textures,
+                fonts
+            });
+        };
 
         const syncHost = async (data, selection, selectedId = null) => {
             const asset = readAsset();

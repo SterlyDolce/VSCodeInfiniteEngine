@@ -10,6 +10,7 @@ class IEMaterial extends IEType {
     setValue(value) {
         const validate = material => {
             if (material === null) return null;
+            if (typeof material === 'string') return material;
 
             if (
                 typeof material !== 'object' ||

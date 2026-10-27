@@ -82,6 +82,7 @@ export class IENodeRegistry {
 
             ...(pin.assetType ? { assetType: pin.assetType } : {}),
             ...(pin.itemType ? { itemType: pin.itemType } : {}),
+            ...(pin.isArray === true ? { isArray: true } : {}),
         });
 
 

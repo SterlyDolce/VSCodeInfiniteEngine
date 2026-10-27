@@ -74,6 +74,10 @@ export class IEScriptRuntime {
         this.incoming = new Map();
         this.outgoing = new Map();
         this.state = new Map();
+        this.uiBindings = new Set();
+        this.variableDefinitions = new Map(
+            (graph.variables ?? []).map(variable => [variable.id, variable])
+        );
         this.stopped = false;
         this.diagnostics = options.diagnostics ?? {};
 
@@ -148,9 +152,10 @@ export class IEScriptRuntime {
     }
 
     stop() {
-    this.stopped = true;
-    this.clearKeyboard();
-}
+        this.stopped = true;
+        this.uiBindings.clear();
+        this.clearKeyboard();
+    }
 
     getPin(node, name, direction) {
         return node.pins?.find(pin =>
@@ -203,23 +208,35 @@ export class IEScriptRuntime {
             mouse: this.mouse,
             deltaTime: frame.deltaTime,
             state: this.state.get(node.id),
-            getReferenceResult: nodeId =>
-                frame.referenceResults?.get(nodeId) ?? null,
+            getReferenceResult: nodeId => {
+                if (frame.referenceResults?.has(nodeId)) {
+                    return frame.referenceResults.get(nodeId);
+                }
+                return this.state.get(nodeId)?.referenceResult ?? null;
+            },
 
             setReferenceResult: (nodeId, reference) => {
                 frame.referenceResults ??= new Map();
                 frame.referenceResults.set(nodeId, reference);
+                if (!this.state.has(nodeId)) this.state.set(nodeId, {});
+                this.state.get(nodeId).referenceResult = reference;
             },
             readInput: name => this.readInput(node, name, frame, stack),
 
-            getOutputValue: name =>
-                frame.outputValues?.get(node.id)?.get(name),
+            getOutputValue: name => {
+                const frameValues = frame.outputValues?.get(node.id);
+                if (frameValues?.has(name)) return frameValues.get(name);
+                return this.state.get(node.id)?.outputValues?.get(name);
+            },
 
             setOutputValue: (name, value) => {
                 frame.outputValues ??= new Map();
                 const values = frame.outputValues.get(node.id) ?? new Map();
                 values.set(name, value);
                 frame.outputValues.set(node.id, values);
+                const persistent = this.state.get(node.id);
+                persistent.outputValues ??= new Map();
+                persistent.outputValues.set(name, value);
             },
 
             runOutput: name => {
@@ -236,8 +253,89 @@ export class IEScriptRuntime {
 
             isStopped: () => this.stopped,
 
-            fireOutput: name => this.fireNodeOutput(node, name, frame)
+            fireOutput: name => this.fireNodeOutput(node, name, frame),
+
+            bindUIValue: () => {
+                this.uiBindings.add(node.id);
+                return this.applyUIBinding(node, frame);
+            }
         };
+    }
+
+    applyUIBinding(node, frame) {
+        const binding = this.readUIBinding(node, frame);
+        return this.engine?.setUIValue?.(
+            binding.ui,
+            binding.widget,
+            binding.property,
+            binding.value
+        ) ?? false;
+    }
+
+    readUIBinding(node, frame) {
+        return {
+            ui: this.readInput(node, 'UI', frame, new Set()),
+            widget: String(this.readInput(node, 'Widget', frame, new Set()) ?? ''),
+            property: String(this.readInput(node, 'Property', frame, new Set()) ?? 'Text'),
+            value: this.readInput(node, 'Value', frame, new Set())
+        };
+    }
+
+    updateVariableFromUI(event) {
+        if (event.type !== 'changed') return;
+
+        for (const nodeId of this.uiBindings) {
+            const node = this.nodes.get(nodeId);
+            if (!node) continue;
+            const frame = {
+                deltaTime: 0,
+                results: new Map(),
+                referenceResults: new Map(),
+                outputValues: new Map(),
+                depth: 0,
+                budget: { steps: 0 }
+            };
+            const binding = this.readUIBinding(node, frame);
+            const uiId = typeof binding.ui === 'string' ? binding.ui : binding.ui?.id;
+            if (uiId !== event.ui) continue;
+            if (binding.widget !== event.widget && binding.widget !== event.widgetName) continue;
+
+            const valuePin = this.getPin(node, 'Value', 'input');
+            const sourceId = valuePin ? this.incoming.get(valuePin.id) : null;
+            const source = sourceId ? this.pins.get(sourceId) : null;
+            if (source?.node.type !== 'variable.get') continue;
+
+            const property = binding.property.trim().toLowerCase();
+            let value = property === 'checked'
+                ? Boolean(event.checked)
+                : event.value;
+            const definition = this.variableDefinitions.get(source.node.variableId);
+            if (definition?.type === 'number') {
+                const number = Number(value);
+                if (!Number.isFinite(number)) continue;
+                value = number;
+            } else if (definition?.type === 'boolean') {
+                value = Boolean(value);
+            } else if (definition?.type === 'string') {
+                value = String(value ?? '');
+            }
+            this.variables.set(source.node.variableId, copyRuntimeValue(value));
+        }
+    }
+
+    updateUIBindings(deltaTime) {
+        for (const nodeId of this.uiBindings) {
+            const node = this.nodes.get(nodeId);
+            if (!node) continue;
+            this.applyUIBinding(node, {
+                deltaTime,
+                results: new Map(),
+                referenceResults: new Map(),
+                outputValues: new Map(),
+                depth: 0,
+                budget: { steps: 0 }
+            });
+        }
     }
 
     readInput(node, name, frame, stack = new Set()) {
@@ -304,18 +402,9 @@ export class IEScriptRuntime {
         stack.add(node.id);
 
         try {
-            const value = definition.evaluate(
+            return definition.evaluate(
                 this.createContext(node, frame, stack, output)
             );
-            this.engine?.traceScript?.({
-                ...this.diagnostics,
-                nodeId: node.id,
-                nodeType: node.type,
-                phase: 'evaluate',
-                output,
-                value
-            });
-            return value;
         } catch (error) {
             throw this.annotateError(error, node, 'evaluate');
         } finally {
@@ -336,13 +425,15 @@ export class IEScriptRuntime {
             frame.results ??= new Map();
             frame.results.set(node.id, outputs);
 
-            this.engine?.traceScript?.({
-                ...this.diagnostics,
-                nodeId: node.id,
-                nodeType: node.type,
-                phase: 'execute',
-                breakpoint: node.breakpoint === true
-            });
+			if (node.breakpoint === true) {
+				this.engine?.traceScript?.({
+					...this.diagnostics,
+					nodeId: node.id,
+					nodeType: node.type,
+					phase: 'execute',
+					breakpoint: true
+				});
+			}
 
             return 'then';
         }
@@ -355,13 +446,15 @@ export class IEScriptRuntime {
 
         try {
             const result = definition.execute(this.createContext(node, frame));
-            this.engine?.traceScript?.({
-                ...this.diagnostics,
-                nodeId: node.id,
-                nodeType: node.type,
-                phase: 'execute',
-                breakpoint: node.breakpoint === true
-            });
+			if (node.breakpoint === true) {
+				this.engine?.traceScript?.({
+					...this.diagnostics,
+					nodeId: node.id,
+					nodeType: node.type,
+					phase: 'execute',
+					breakpoint: true
+				});
+			}
             return result;
         } catch (error) {
             throw this.annotateError(error, node, 'execute');
@@ -631,6 +724,7 @@ export class IEScriptRuntime {
 
     update(deltaTime) {
         this.fireEvent('event.update', { deltaTime });
+        this.updateUIBindings(deltaTime);
     }
 
     keyDown(key) {
@@ -675,6 +769,38 @@ export class IEScriptRuntime {
             'onReleased',
             button
         );
+    }
+
+    widgetInteraction(event) {
+        if (this.stopped || !event) return;
+        this.updateVariableFromUI(event);
+        const frame = {
+            deltaTime: 0,
+            results: new Map(),
+            referenceResults: new Map(),
+            outputValues: new Map(),
+            depth: 0,
+            budget: { steps: 0 }
+        };
+
+        for (const node of this.nodes.values()) {
+            const definition = nodeRegistry.get(node.type);
+            const configured = definition.uiEvent;
+            if (!configured) continue;
+            if (configured.uiId !== event.ui) continue;
+            if (configured.widgetId !== event.widget) continue;
+            if (configured.eventType !== event.type) continue;
+            if (!this.state.has(node.id)) this.state.set(node.id, {});
+            this.state.get(node.id).widgetEvent = event;
+            const queue = [];
+            const outputName = this.getPin(
+                node,
+                configured.outputName,
+                'output'
+            ) ? configured.outputName : 'exec';
+            this.enqueue(node, outputName, queue);
+            this.runQueue(queue, frame);
+        }
     }
 
     clearKeyboard() {

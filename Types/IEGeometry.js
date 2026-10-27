@@ -9,6 +9,10 @@ class IEGeometry extends IEType {
     }
 
     setValue(value) {
+        if (typeof value === 'string') {
+            return super.setValue(value);
+        }
+
         if (
             value !== null &&
             (

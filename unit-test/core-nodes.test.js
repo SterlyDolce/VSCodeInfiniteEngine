@@ -24,6 +24,19 @@ test('core collection types are registered and clone their values', () => {
     assert.deepEqual(value.getValue(), [{ score: 1 }]);
 });
 
+test('visual script variable types cover the current node data types', () => {
+    const types = [
+        'any', 'array', 'object', 'boolean', 'color', 'number', 'string',
+        'vector2', 'vector3', 'actor', 'component', 'transformable', 'mesh',
+        'geometry', 'material', 'texture', 'script', 'terrain', 'animation',
+        'animationState', 'animationstate', 'ui'
+    ];
+
+    for (const type of types) {
+        assert.ok(IETypeRegistry.get(type), `Missing variable type: ${type}`);
+    }
+});
+
 test('array and object nodes return immutable results', async () => {
     const nodes = await registry;
     const source = [1, 2];
@@ -44,6 +57,43 @@ test('array and object nodes return immutable results', async () => {
 
     assert.deepEqual(object, { score: 4 });
     assert.deepEqual(updated, { score: 10 });
+});
+
+test('array nodes preserve live engine references without cloning them', async () => {
+    const nodes = await registry;
+    const component = {
+        isObject3D: true,
+        onRotationChange() {}
+    };
+    const source = [];
+    const result = evaluate(nodes.get('array.push'), {
+        Array: source,
+        Value: component
+    }, 'Array');
+
+    assert.deepEqual(source, []);
+    assert.equal(result.length, 1);
+    assert.equal(result[0], component);
+});
+
+test('Vector 2 nodes construct and transform UI positions', async () => {
+    const nodes = await registry;
+
+    assert.deepEqual(evaluate(nodes.get('vector2.compact'), {
+        x: 24,
+        y: 48
+    }, 'vector'), [24, 48]);
+    assert.deepEqual(evaluate(nodes.get('vector2.scale'), {
+        vector: [10, 20],
+        scalar: 2
+    }, 'result'), [20, 40]);
+    assert.equal(evaluate(nodes.get('vector2.spread'), {
+        vector: [12, 30]
+    }, 'y'), 30);
+    assert.deepEqual(evaluate(nodes.get('vector2.add'), {
+        a: [1, 2],
+        b: [3, 4]
+    }, 'result'), [4, 6]);
 });
 
 test('JSON, string, number, type, and regular expression nodes evaluate', async () => {

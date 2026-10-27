@@ -279,13 +279,39 @@ nodeRegistry.register('input.showMouse', {
     name: 'Show Mouse',
     category: 'Input',
     inputs: [
-        { name: 'exec', type: 'execution' }
+        { name: 'exec', type: 'execution' },
+        { name: 'show', type: 'boolean', default: true }
     ],
     outputs: [
         { name: 'exec', type: 'execution' }
     ],
-    execute({ engine }) {
-        engine?.showMouse?.();
+    execute({ readInput, engine }) {
+        if (readInput('show')) engine?.showMouse?.();
+        else engine?.hideMouse?.();
+        return 'exec';
+    }
+});
+
+nodeRegistry.register('input.setMode', {
+    name: 'Set Input Mode',
+    category: 'Input',
+    inputs: [
+        { name: 'exec', type: 'execution' },
+        {
+            name: 'mode',
+            type: 'string',
+            default: 'Game Only',
+            editor: {
+                type: 'enum',
+                options: ['UI Only', 'Game and UI', 'Game Only']
+            }
+        }
+    ],
+    outputs: [
+        { name: 'exec', type: 'execution' }
+    ],
+    execute({ readInput, engine }) {
+        engine?.setInputMode?.(readInput('mode'));
         return 'exec';
     }
 });

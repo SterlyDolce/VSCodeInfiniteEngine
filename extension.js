@@ -371,6 +371,12 @@ async function activate(context) {
 		void reportRuntimeError(error);
 	});
 	sceneEditor.setRuntimeTraceHandler(trace => {
+		if (Array.isArray(trace.batch)) {
+			void IEVisualScriptEditor.broadcastRuntimeEvents(
+				trace.batch.map(event => ({ type: 'trace', ...event }))
+			);
+			return;
+		}
 		void IEVisualScriptEditor.broadcastRuntimeEvent({ type: 'trace', ...trace });
 		if (trace.breakpoint) {
 			void vscode.commands.executeCommand('infinite.pause');
@@ -1780,6 +1786,9 @@ async function activate(context) {
 	IEActorAssetEditor.outlinerProvider = outlinerProvider;
 	IESkeletonEditor.outlinerProvider = outlinerProvider;
 	IUGEditor.outlinerProvider = outlinerProvider;
+	outlinerProvider.setUIReparentHandler((uri, elementId, parentId) =>
+		IUGEditor.reparentElement(uri, elementId, parentId)
+	);
 
 	outlinerProvider.setReparentHandler(
 		async (uri, componentId, parentId) => {

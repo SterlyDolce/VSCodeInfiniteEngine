@@ -54,3 +54,33 @@ nodeRegistry.register('ui.setText', {
         ) ? 'Then' : 'Not Found';
     }
 });
+
+nodeRegistry.register('ui.bindValue', {
+    name: 'Bind UI Value',
+    category: 'User Interface',
+    inputs: [
+        { name: 'Execute', type: 'execution' },
+        { name: 'UI', type: 'asset', assetType: 'ui', default: null },
+        { name: 'Widget', type: 'string', default: '' },
+        {
+            name: 'Property',
+            type: 'string',
+            default: 'Text',
+            editor: {
+                type: 'enum',
+                options: [
+                    'Text', 'Checked', 'Position', 'Display', 'Opacity',
+                    'Color', 'Background', 'Image'
+                ]
+            }
+        },
+        { name: 'Value', type: 'any', default: null }
+    ],
+    outputs: [
+        { name: 'Then', type: 'execution' },
+        { name: 'Not Found', type: 'execution' }
+    ],
+    execute({ bindUIValue }) {
+        return bindUIValue?.() ? 'Then' : 'Not Found';
+    }
+});

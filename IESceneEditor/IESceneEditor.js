@@ -406,6 +406,14 @@ class IESceneEditor {
 					case 'scriptTrace':
 						this.runtimeTraceHandler?.(message.trace ?? {});
 						break;
+					case 'scriptTraceBatch':
+						this.runtimeTraceHandler?.({
+							batch: message.traces ?? []
+						});
+						break;
+					case 'openScene':
+						await this.openScene(document.uri, message.uri);
+						break;
 					case 'playStarted':
 					case 'playStartFailed':
 						this.finishPlayStart(message);
@@ -413,6 +421,47 @@ class IESceneEditor {
 				}
 			}
 		);
+	}
+
+	async openScene(sourceSceneUri, target) {
+		if (typeof target !== 'string' || !target) return false;
+
+		const targetUri = vscode.Uri.parse(target);
+		const sourceWorkspace = vscode.workspace.getWorkspaceFolder(sourceSceneUri);
+		const targetWorkspace = vscode.workspace.getWorkspaceFolder(targetUri);
+
+		if (
+			!sourceWorkspace ||
+			!targetWorkspace ||
+			sourceWorkspace.uri.toString() !== targetWorkspace.uri.toString() ||
+			!targetUri.fsPath.toLowerCase().endsWith('.iescene')
+		) {
+			throw new Error('Open Scene requires a scene from the current project.');
+		}
+
+		await vscode.workspace.fs.stat(targetUri);
+		const lifecycle = this.sceneLifecycles.get(sourceSceneUri.toString());
+		if (lifecycle === 'playing' || lifecycle === 'paused') {
+			const scene = new IEScene(targetUri);
+			await scene.load();
+			const resolvedScene = await this.resolveSceneAssets(
+				targetUri,
+				scene.toJSON()
+			);
+			const delivered = await this.getPanel(sourceSceneUri)?.webview.postMessage({
+				type: 'openRuntimeScene',
+				scene: structuredClone(resolvedScene)
+			});
+			if (!delivered) throw new Error('The scene viewport did not accept the scene.');
+			return true;
+		}
+
+		await vscode.commands.executeCommand(
+			'vscode.openWith',
+			targetUri,
+			'infinite.sceneEditor'
+		);
+		return true;
 	}
 
 	async dropActorAsset(sceneUri, item, position) {
@@ -1058,6 +1107,33 @@ class IESceneEditor {
 		const animations = assetManager.getAssets('animation');
 		const animationStates = assetManager.getAssets('animationState');
 		const userInterfaces = assetManager.getAssets('ui');
+		const textures = assetManager.getAssets('texture');
+		const fonts = assetManager.getAssets('font');
+
+		for (const entry of textures) {
+			const asset = await assetManager.getAsset(entry.id);
+			if (typeof asset?.data?.image === 'string') {
+				runtimeAssets.push({
+					id: asset.id,
+					type: 'texture',
+					data: { image: asset.data.image }
+				});
+			}
+		}
+
+		for (const entry of fonts) {
+			const asset = await assetManager.getAsset(entry.id);
+			if (typeof asset?.data?.source === 'string') {
+				runtimeAssets.push({
+					id: asset.id,
+					type: 'font',
+					data: {
+						family: asset.data.family ?? asset.name,
+						source: asset.data.source
+					}
+				});
+			}
+		}
 
 		for (const entry of skeletons) {
 			const asset = await assetManager.resolve({

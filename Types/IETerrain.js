@@ -11,6 +11,7 @@ class IETerrain extends IEType {
     setValue(value) {
         const validate = terrain => {
             if (terrain === null) return null;
+            if (typeof terrain === 'string') return terrain;
 
             if (
                 typeof terrain !== 'object' ||

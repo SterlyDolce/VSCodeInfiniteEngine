@@ -13,6 +13,10 @@ class IEScript extends IEType {
             return super.setValue(null);
         }
 
+        if (typeof value === 'string') {
+            return super.setValue(value);
+        }
+
         if (
             typeof value !== 'object' ||
             Array.isArray(value) ||

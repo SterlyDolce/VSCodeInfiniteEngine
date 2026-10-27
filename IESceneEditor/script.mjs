@@ -25,6 +25,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import IEEnvironmentRenderer from './IEEnvironmentRenderer.js';
 import { registeranimationStateAssets } from './Nodes/IEAnimationStateNodes.mjs';
+import { registerUIEventAssets } from './Nodes/IEUIEventNodes.mjs';
 import { nodeRegistry } from './IENodeRegistry.mjs';
 import { IEAnimationRuntime } from './IEAnimationRuntime.mjs';
 import { IEPhysicsRuntime } from './IEPhysicsRuntime.mjs';
@@ -495,6 +496,13 @@ function prepareanimationStateNodes(sceneData) {
 	return registered;
 }
 
+function prepareUIEventNodes(sceneData) {
+	const assets = (sceneData.runtimeAssets ?? []).filter(asset =>
+		asset?.type === 'ui' && asset.id && asset.data
+	);
+	return registerUIEventAssets(assets, nodeRegistry);
+}
+
 function prepareRuntimeMeshAssets(sceneData) {
 	runtimeMeshAssets.clear();
 
@@ -649,24 +657,42 @@ function createRuntimeAnimationClip(reference) {
 }
 const animationEndListeners = new Map();
 const iugRuntime = new IUGRuntime(document.getElementById('gameplay-ui'));
-const scriptTraceTimes = new Map();
+let gameplayInputMode = 'gameOnly';
+
+function normalizeInputMode(mode) {
+	return {
+		'uionly': 'uiOnly',
+		'gameandui': 'gameAndUI',
+		'gameonly': 'gameOnly'
+	}[String(mode ?? '').replace(/[^a-z]/gi, '').toLowerCase()] ?? 'gameOnly';
+}
+
+function acceptsGameInput() {
+	return gameplayInputMode !== 'uiOnly';
+}
+
+iugRuntime.setInteractionHandler(event => {
+	if (!isPlaying || isPaused) return;
+	for (const runtime of scriptRuntimes) {
+		try {
+			runtime.widgetInteraction(event);
+		} catch (error) {
+			reportRuntimeError(error, error.ieRuntimeContext ?? {
+				phase: 'VisualScript.widgetInteraction'
+			});
+		}
+	}
+});
 
 const engine = {
 	traceScript(trace) {
-		const now = performance.now();
-		const key = `${trace.scriptId}:${trace.nodeId}:${trace.output ?? ''}`;
-		if (!trace.breakpoint && now - (scriptTraceTimes.get(key) ?? 0) < 60) return;
-		scriptTraceTimes.set(key, now);
-		let value = trace.value;
-		if (value && typeof value === 'object') {
-			try { value = JSON.parse(JSON.stringify(value)); } catch { value = String(value); }
-		}
-		postSceneUpdate('scriptTrace', { trace: { ...trace, value, timestamp: Date.now() } });
-		if (trace.breakpoint) {
-			isPaused = true;
-			clearGameplayInput();
-			this.showMouse();
-		}
+		if (!trace.breakpoint) return;
+		postSceneUpdate('scriptTrace', {
+			trace: { ...trace, timestamp: Date.now() }
+		});
+		isPaused = true;
+		clearGameplayInput();
+		this.showMouse();
 	},
 	lockMouse() {
 		if (!isPlaying || document.pointerLockElement === renderer.domElement) {
@@ -684,6 +710,28 @@ const engine = {
 			document.exitPointerLock?.();
 		}
 		renderer.domElement.style.cursor = '';
+		iugRuntime.canvas.style.cursor = '';
+	},
+
+	hideMouse() {
+		renderer.domElement.style.cursor = 'none';
+		iugRuntime.canvas.style.cursor = 'none';
+	},
+
+	setInputMode(mode) {
+		gameplayInputMode = normalizeInputMode(mode);
+		const acceptsUIInput = gameplayInputMode !== 'gameOnly';
+		iugRuntime.setInputEnabled(acceptsUIInput);
+
+		if (acceptsUIInput) {
+			this.showMouse();
+		} else {
+			this.hideMouse();
+			this.lockMouse();
+		}
+
+		if (!acceptsGameInput()) clearGameplayInput();
+		return gameplayInputMode;
 	},
 
 	getPhysicsBody(actor) {
@@ -716,6 +764,83 @@ const engine = {
 
 	setUIText(reference, widgetName, value) {
 		return iugRuntime.setText(reference, String(widgetName ?? ''), value);
+	},
+
+	setUIValue(reference, widgetName, property, value) {
+		return iugRuntime.setValue(
+			reference,
+			String(widgetName ?? ''),
+			property,
+			value
+		);
+	},
+
+	openScene(reference) {
+		const uri = typeof reference === 'string' ? reference : reference?.id;
+		if (!uri) return false;
+		vscode.postMessage({ type: 'openScene', uri });
+		return true;
+	},
+
+	addComponent(actor, type) {
+		if (!actor?.userData?.isActorRoot) {
+			throw new TypeError('Add Component requires an Actor');
+		}
+
+		const supported = new Set([
+			'mesh', 'camera', 'springArm', 'rigidBody', 'collider',
+			'pointLight', 'directionalLight', 'spotLight'
+		]);
+		if (!supported.has(type)) {
+			throw new Error(`Unsupported runtime component type: ${type}`);
+		}
+
+		const labels = {
+			mesh: 'Mesh',
+			camera: 'Camera',
+			springArm: 'Spring Arm',
+			rigidBody: 'Rigid Body',
+			collider: 'Collider',
+			pointLight: 'Point Light',
+			directionalLight: 'Directional Light',
+			spotLight: 'Spot Light'
+		};
+		const existing = actor.userData.components ?? [];
+		const baseName = labels[type];
+		const usedNames = new Set(existing.map(component => component.name));
+		let name = baseName;
+		let suffix = 2;
+		while (usedNames.has(name)) name = `${baseName} ${suffix++}`;
+
+		const data = {
+			id: crypto.randomUUID(),
+			type,
+			name,
+			enabled: true,
+			parent: null,
+			position: [0, 0, 0],
+			rotation: [0, 0, 0],
+			scale: [1, 1, 1],
+			color: '#ffffff',
+			intensity: 1,
+			fov: 75,
+			near: 0.1,
+			far: 1000
+		};
+		existing.push(data);
+		actor.userData.components = existing;
+
+		let object = type === 'mesh'
+			? new THREE.Mesh(
+				new THREE.BufferGeometry(),
+				new THREE.MeshStandardMaterial()
+			)
+			: createRenderedComponent(data);
+		if (!object) object = new THREE.Group();
+		initializeRenderedComponent(object, actor, data);
+		actor.add(object);
+		object.updateMatrixWorld(true);
+		return object;
 	},
 
 	getMesh(component) {
@@ -757,6 +882,22 @@ const engine = {
 			throw new Error('Materials must be an array');
 		}
 
+		const geometryId = typeof geometryRef === 'string'
+			? geometryRef
+			: geometryRef?.id;
+		const materialIds = materialRefs.map(ref =>
+			typeof ref === 'string' ? ref : ref?.id
+		);
+		const currentMaterialIds = component.userData.materialAssetIds ?? [];
+
+		if (
+			component.userData.geometryAssetId === geometryId &&
+			currentMaterialIds.length === materialIds.length &&
+			currentMaterialIds.every((id, index) => id === materialIds[index])
+		) {
+			return false;
+		}
+
 		const geometryData = resolveRuntimeMeshAsset(geometryRef, 'geometry');
 
 		const materialsData = materialRefs.map((ref) => resolveRuntimeMeshAsset(ref, 'material'));
@@ -780,12 +921,8 @@ const engine = {
 		component.material = replacement.material;
 
 		// Preserve component identity and its scene hierarchy.
-		component.userData.geometryAssetId =
-			typeof geometryRef === 'string' ? geometryRef : geometryRef?.id;
-
-		component.userData.materialAssetIds = materialRefs.map((ref) =>
-			typeof ref === 'string' ? ref : ref?.id
-		);
+		component.userData.geometryAssetId = geometryId;
+		component.userData.materialAssetIds = materialIds;
 
 		component.geometry.computeBoundingSphere();
 
@@ -1135,27 +1272,42 @@ function clearGameplayInput() {
 
 document.addEventListener('pointerlockchange', () => {
 	renderer.domElement.style.cursor =
-		document.pointerLockElement === renderer.domElement ? 'none' : '';
+		document.pointerLockElement === renderer.domElement ||
+		(isPlaying && !isPaused && gameplayInputMode === 'gameOnly')
+			? 'none'
+			: '';
 });
 
-renderer.domElement.addEventListener('pointermove', event => {
-	if (!isPlaying || isPaused) return;
+const updateGameplayPointer = event => {
+	if (!isPlaying || isPaused || !acceptsGameInput()) return;
 
 	const rect = renderer.domElement.getBoundingClientRect();
 	gameplayMouse.position[0] = ((event.clientX - rect.left) / rect.width) * 2 - 1;
 	gameplayMouse.position[1] = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 	gameplayMouse.delta[0] += event.movementX;
 	gameplayMouse.delta[1] += event.movementY;
-});
+};
 
-renderer.domElement.addEventListener('pointerdown', event => {
-	if (!isPlaying || isPaused) return;
+const pressGameplayPointer = event => {
+	if (!isPlaying || isPaused || !acceptsGameInput()) return;
+	if (gameplayInputMode === 'gameOnly') engine.lockMouse();
 	const name = mouseButtonNames[event.button];
 	if (!name || gameplayMouse.buttons.has(name)) return;
 
 	gameplayMouse.buttons.add(name);
 	for (const runtime of scriptRuntimes) runtime.mouseDown(name);
-});
+};
+
+const scrollGameplayPointer = event => {
+	if (!isPlaying || isPaused || !acceptsGameInput()) return;
+	gameplayMouse.wheel += event.deltaY;
+};
+
+for (const inputSurface of [renderer.domElement, iugRuntime.canvas]) {
+	inputSurface.addEventListener('pointermove', updateGameplayPointer);
+	inputSurface.addEventListener('pointerdown', pressGameplayPointer);
+	inputSurface.addEventListener('wheel', scrollGameplayPointer, { passive: true });
+}
 
 window.addEventListener('pointerup', event => {
 	const name = mouseButtonNames[event.button];
@@ -1165,13 +1317,8 @@ window.addEventListener('pointerup', event => {
 	for (const runtime of scriptRuntimes) runtime.mouseUp(name);
 });
 
-renderer.domElement.addEventListener('wheel', event => {
-	if (!isPlaying || isPaused) return;
-	gameplayMouse.wheel += event.deltaY;
-}, { passive: true });
-
 window.addEventListener('keydown', (event) => {
-	if (!isPlaying || isPaused || event.repeat) return;
+	if (!isPlaying || isPaused || !acceptsGameInput() || event.repeat) return;
 
 	if (
 		event.target instanceof HTMLElement &&
@@ -1195,7 +1342,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('keyup', (event) => {
-	if (!isPlaying || isPaused) return;
+	if (!isPlaying || isPaused || !acceptsGameInput()) return;
 
 	for (const runtime of scriptRuntimes) {
 		try {
@@ -1688,6 +1835,14 @@ window.addEventListener('message', async (event) => {
 					requestId: message.requestId,
 					message: error instanceof Error ? error.message : String(error)
 				});
+			}
+			break;
+
+		case 'openRuntimeScene':
+			try {
+				await beginPlay(message.scene);
+			} catch (error) {
+				reportRuntimeError(error, { phase: 'Scene.open' });
 			}
 			break;
 
@@ -2326,6 +2481,7 @@ function loadEditorScene(sceneData) {
 
 	prepareRuntimeMeshAssets(sceneData);
 	prepareanimationStateNodes(sceneData);
+	prepareUIEventNodes(sceneData);
 
 	// Rebuild actors and components.
 	buildActorHierarchy(sceneData, editorActorRoot, true);
@@ -3042,6 +3198,7 @@ async function beginPlay(sceneData) {
 	// Register generated nodes before the scripts
 	// are instantiated or evaluated.
 	prepareanimationStateNodes(sceneData);
+	prepareUIEventNodes(sceneData);
 
 	gameplayEnvironment.setEnvironment(null);
 
@@ -3060,6 +3217,7 @@ async function beginPlay(sceneData) {
 	lastFrameTime = performance.now();
 	isPlaying = true;
 	isPaused = false;
+	engine.setInputMode('Game Only');
 
 	previewViewport.classList.remove('visible');
 	viewGizmoViewport.style.display = 'none';
@@ -3105,6 +3263,7 @@ function continuePlay() {
 	}
 
 	isPaused = false;
+	engine.setInputMode(gameplayInputMode);
 }
 
 function stepPlay() {
@@ -3142,6 +3301,8 @@ function disposeGameplayRuntime() {
 	animationMixers.clear();
 	clearGameplayInput();
 	engine.showMouse();
+	gameplayInputMode = 'gameOnly';
+	iugRuntime.setInputEnabled(false);
 	for (const runtime of scriptRuntimes) {
 		runtime.stop();
 	}

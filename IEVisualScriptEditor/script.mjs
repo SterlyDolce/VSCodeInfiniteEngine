@@ -174,14 +174,17 @@
 
 
     function createFunctionPin(parameter, direction) {
+		const isArray = parameter.isArray === true || parameter.type === 'array';
+		const baseType = parameter.type === 'array' ? 'any' : parameter.type;
         return {
             id: uuid(),
             parameterId: parameter.id,
             name: parameter.name,
-            type: parameter.type,
+            type: isArray ? 'array' : baseType,
             direction,
-            ...(direction === 'input' && parameter.type !== 'execution'
-                ? { value: clone(parameter.default ?? defaultForType(parameter.type)) }
+			...(isArray ? { isArray: true, itemType: baseType } : {}),
+			...(direction === 'input' && baseType !== 'execution'
+                ? { value: clone(parameter.default ?? (isArray ? [] : defaultForType(baseType))) }
                 : {})
         };
     }
@@ -326,6 +329,7 @@
                 id: uuid(),
                 name,
                 type: 'number',
+				isArray: false,
                 default: 0
             });
         } else {
@@ -368,9 +372,14 @@
 
                     if (parameter.type !== type) {
                         parameter.type = type;
-                        parameter.default = defaultForType(type);
+						parameter.default = parameter.isArray ? [] : defaultForType(type);
                     }
                 }
+				if (Object.hasOwn(changes, 'isArray')) {
+					parameter.isArray = changes.isArray === true;
+					if (parameter.type === 'array') parameter.type = 'any';
+					parameter.default = parameter.isArray ? [] : defaultForType(parameter.type);
+				}
             } else {
                 return;
             }
@@ -482,6 +491,20 @@
             if (pin) return { node, pin };
         }
         return null;
+    }
+
+    function displayPinValue(pin) {
+        if (pin.assetType && pin.value) {
+            const assetId = typeof pin.value === 'string'
+                ? pin.value
+                : pin.value?.id;
+            const indexedAsset = assetIndex.get(assetId);
+            if (indexedAsset?.name) return indexedAsset.name;
+        }
+
+        return typeof pin.value === 'object'
+            ? JSON.stringify(pin.value)
+            : String(pin.value ?? '');
     }
 
 
@@ -624,7 +647,8 @@
                             : undefined,
                         pin.editor ?? null,
                         pin.assetType ?? null,
-                        pin.itemType ?? null
+                        pin.itemType ?? null,
+                        pin.isArray === true
                     ]),
 
                     outputs: node.outputs.map(pin => [
@@ -635,12 +659,12 @@
             ])
         );
 
-		if (asset && syncAnimationStateNodes()) {
-			changed('Animation State nodes refreshed');
+		if (asset && syncGeneratedNodes()) {
+			changed('Generated nodes refreshed');
 		}
     }
 
-	function syncAnimationStateNodes() {
+	function syncGeneratedNodes() {
 		if (!asset) return false;
 
 		let modified = false;
@@ -648,7 +672,10 @@
 
 		for (const graph of graphs) {
 			for (const node of graph.nodes ?? []) {
-				if (!node.type?.startsWith('animationstate.asset:')) continue;
+				if (
+					!node.type?.startsWith('animationstate.asset:') &&
+					!node.type?.startsWith('ui.event:')
+				) continue;
 
 				const def = definitions[node.type];
 				if (!def) continue;
@@ -798,7 +825,11 @@
                 (type === 'variable.set' && entry[0] === 'return')
             );
 
-            const pinType = variablePin ? variable.type : entry[1];
+			const variableIsArray = variablePin && (variable.isArray === true || variable.type === 'array');
+			const variableBaseType = variable?.type === 'array' ? 'any' : variable?.type;
+			const pinType = variablePin
+				? (variableIsArray ? 'array' : variableBaseType)
+				: entry[1];
 
             const defaultValue = variablePin && direction === 'input'
                 ? clone(variable.value)
@@ -823,6 +854,8 @@
                     : {}),
 
                 ...(entry[5] ? { itemType: entry[5] } : {}),
+                ...(entry[6] === true ? { isArray: true } : {}),
+				...(variableIsArray ? { isArray: true, itemType: variableBaseType } : {}),
             };
         };
 
@@ -1144,13 +1177,31 @@
                         Object.hasOwn(pin, 'value') &&
                         view.z > 0.45
                     ) {
-                        const raw = typeof pin.value === 'object'
-                            ? JSON.stringify(pin.value)
-                            : String(pin.value ?? '');
-                        const shown = raw.length > 15 ? raw.slice(0, 14) + '…' : raw;
-                        ctx.fillStyle = theme.muted;
-                        ctx.textAlign = 'right';
-                        ctx.fillText(shown, x + w - 10, p.y + 4);
+                        const raw = displayPinValue(pin);
+                        const labelWidth = ctx.measureText(pin.name).width;
+                        const valueLeft = p.x + 20 + labelWidth;
+                        const valueRight = x + w / 2 - 8;
+                        const availableWidth = valueRight - valueLeft;
+                        if (availableWidth > 12) {
+                            let shown = raw;
+                            while (
+                                shown.length > 1 &&
+                                ctx.measureText(shown).width > availableWidth
+                            ) {
+                                shown = shown.slice(0, -1);
+                            }
+                            if (shown !== raw) {
+                                shown = shown.slice(0, -1) + '…';
+                            }
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.rect(valueLeft, p.y - 10, availableWidth, 18);
+                            ctx.clip();
+                            ctx.fillStyle = theme.muted;
+                            ctx.textAlign = 'right';
+                            ctx.fillText(shown, valueRight, p.y + 4);
+                            ctx.restore();
+                        }
                     }
                     ctx.textAlign = 'left';
                     if (output && node.watchPins?.includes(pin.id) && runtimePinValues.has(`${node.id}:${pin.name}`)) {
@@ -2633,6 +2684,7 @@
             id: uuid(),
             name: 'Variable' + (variables().length + 1),
             type: 'number',
+			isArray: false,
             value: 0
         };
 
@@ -3004,7 +3056,7 @@
         }
 
         if (inputType === 'transformable') {
-            return ['actor', 'component', 'transformable'].includes(outputType);
+			return ['actor', 'component', 'transformable', 'any'].includes(outputType);
         }
 
         return (
@@ -3037,7 +3089,16 @@
 
                     if (!isVariableValuePin) continue;
 
-                    pin.type = variable.type;
+					const isArray = variable.isArray === true || variable.type === 'array';
+					const baseType = variable.type === 'array' ? 'any' : variable.type;
+					pin.type = isArray ? 'array' : baseType;
+					if (isArray) {
+						pin.isArray = true;
+						pin.itemType = baseType;
+					} else {
+						delete pin.isArray;
+						delete pin.itemType;
+					}
                     affectedPins.add(pin.id);
 
                     if (pin.direction === 'input') {
@@ -3065,6 +3126,34 @@
             });
         }
     }
+
+	function syncTypedArrayPins() {
+		if (!asset) return false;
+		let changed = false;
+		for (const owner of [asset.data, ...functions()]) {
+			const pins = new Map((owner.nodes ?? []).flatMap(node =>
+				(node.pins ?? []).map(pin => [pin.id, pin])
+			));
+			for (const node of owner.nodes ?? []) {
+				if (node.type !== 'array.get') continue;
+				const arrayInput = node.pins?.find(pin =>
+					pin.direction === 'input' && pin.name === 'Array'
+				);
+				const valueOutput = node.pins?.find(pin =>
+					pin.direction === 'output' && pin.name === 'Value'
+				);
+				const link = (owner.links ?? []).find(item => item.to === arrayInput?.id);
+				const itemType = pins.get(link?.from)?.itemType ?? 'any';
+				if (valueOutput && valueOutput.type !== itemType) {
+					valueOutput.type = itemType;
+					if (itemType === 'any') delete valueOutput.itemType;
+					else valueOutput.itemType = itemType;
+					changed = true;
+				}
+			}
+		}
+		return changed;
+	}
 
     function updateGraphProperty(message) {
         if (!asset) return;
@@ -3097,8 +3186,13 @@
                 if (!Object.hasOwn(dataTypes, value)) return;
 
                 variable.type = value;
-                variable.value = defaultGraphValue(value);
+				variable.value = variable.isArray ? [] : defaultGraphValue(value);
                 updateVariablePins(variable, functionId);
+			} else if (property === 'isArray') {
+				variable.isArray = value === true;
+				if (variable.type === 'array') variable.type = 'any';
+				variable.value = variable.isArray ? [] : defaultGraphValue(variable.type);
+				updateVariablePins(variable, functionId);
             } else if (property === 'value') {
                 variable.value = clone(value);
             } else {
@@ -3112,12 +3206,31 @@
                 functionId: functionId ?? null,
                 value: clone(variable)
             };
+			selectedVariable = variable.id;
+			selectedNode = null;
+			selectedNodes.clear();
+			selectedComment = null;
+			selectedLink = null;
+			if (functionId && functions().some(fn => fn.id === functionId)) {
+				activeFunctionId = functionId;
+				updateGraphHeader();
+			}
         
 } else if (selectionType === 'node') {
     const targetGraph = graphForFunction(functionId);
     const node = targetGraph?.nodes?.find(n => n.id === id);
 
     if (!node) return;
+	selectedNode = node.id;
+	selectedNodes.clear();
+	selectedNodes.add(node.id);
+	selectedVariable = null;
+	selectedComment = null;
+	selectedLink = null;
+	if (functionId && functions().some(fn => fn.id === functionId)) {
+		activeFunctionId = functionId;
+		updateGraphHeader();
+	}
 
     if (
         node.type === 'logic.switch' &&
@@ -3260,6 +3373,12 @@
                 name: fn.name,
                 value: clone(fn)
             };
+			activeFunctionId = fn.id;
+			selectedNode = null;
+			selectedNodes.clear();
+			selectedVariable = null;
+			selectedComment = null;
+			selectedLink = null;
         }
 
         if (!selection) return;
@@ -3309,7 +3428,8 @@
                                         : {}),
                                     type: editor?.type ?? pin.type,
                                     itemType: pin.itemType ?? input?.[5] ?? null,
-                                    assetType: pin.assetType ?? input?.[4] ?? null
+                                    assetType: pin.assetType ?? input?.[4] ?? null,
+                                    isArray: pin.isArray === true || input?.[6] === true
                                 }
                             ];
                         })
@@ -3567,23 +3687,29 @@
     window.addEventListener('message', event => {
         const message = event.data;
 
-        if (message.type === 'runtimeEvent') {
-            const runtimeEvent = message.event ?? {};
-            const scriptId = runtimeEvent.scriptId ?? runtimeEvent.context?.scriptId;
-            if (asset && scriptId === asset.id) {
+        if (message.type === 'runtimeEvent' || message.type === 'runtimeEventBatch') {
+            const events = message.type === 'runtimeEventBatch'
+                ? (message.events ?? [])
+                : [message.event ?? {}];
+            let changed = false;
+            for (const runtimeEvent of events) {
+                const scriptId = runtimeEvent.scriptId ?? runtimeEvent.context?.scriptId;
+                if (!asset || scriptId !== asset.id) continue;
                 const nodeId = runtimeEvent.nodeId ?? runtimeEvent.context?.nodeId;
-                if (nodeId) {
-                    runtimeHighlights.set(nodeId, Date.now());
-                    if (Object.hasOwn(runtimeEvent, 'value')) runtimeValues.set(nodeId, runtimeEvent.value);
-                    if (Object.hasOwn(runtimeEvent, 'value') && runtimeEvent.output) {
-                        runtimePinValues.set(`${nodeId}:${runtimeEvent.output}`, runtimeEvent.value);
-                    }
-                    if (runtimeEvent.type === 'error') {
-                        nodeErrors.set(nodeId, [runtimeEvent.message ?? 'Runtime error']);
-                    }
-                    draw();
-                    setTimeout(draw, 700);
+                if (!nodeId) continue;
+                runtimeHighlights.set(nodeId, Date.now());
+                if (Object.hasOwn(runtimeEvent, 'value')) runtimeValues.set(nodeId, runtimeEvent.value);
+                if (Object.hasOwn(runtimeEvent, 'value') && runtimeEvent.output) {
+                    runtimePinValues.set(`${nodeId}:${runtimeEvent.output}`, runtimeEvent.value);
                 }
+                if (runtimeEvent.type === 'error') {
+                    nodeErrors.set(nodeId, [runtimeEvent.message ?? 'Runtime error']);
+                }
+                changed = true;
+            }
+            if (changed) {
+                draw();
+                setTimeout(draw, 700);
             }
             return;
         }
@@ -3720,6 +3846,7 @@
 
         if (message.type === 'assetIndex') {
             assetIndex = new Map((message.assets ?? []).map(item => [item.id, item]));
+            draw();
             return;
         }
 
@@ -3763,6 +3890,10 @@
             const firstLoad = asset === null;
             const incomingSnapshot = JSON.stringify(message.asset);
             const sameDocument = historySnapshot === incomingSnapshot;
+			const previousNodeId = selectedNode;
+			const previousVariableId = selectedVariable;
+			const previousCommentId = selectedComment;
+			const previousLinkId = selectedLink;
             placement = null;
             clearTimeout(saveTimer);
 
@@ -3774,6 +3905,7 @@
 			historySnapshot = incomingSnapshot;
 			updateHistoryControls();
 			const refreshedAnimationStates = syncAnimationStateNodes();
+			const refreshedArrayPins = syncTypedArrayPins();
             if (
                 activeFunctionId &&
                 !functions().some(fn => fn.id === activeFunctionId)
@@ -3782,11 +3914,20 @@
             }
 
             updateGraphHeader();
-            selectedNode = null;
+			selectedNode = previousNodeId && nodes().some(node => node.id === previousNodeId)
+				? previousNodeId
+				: null;
             selectedNodes.clear();
-            selectedComment = null;
-            selectedVariable = null;
-            selectedLink = null;
+			if (selectedNode) selectedNodes.add(selectedNode);
+			selectedComment = previousCommentId && comments().some(comment => comment.id === previousCommentId)
+				? previousCommentId
+				: null;
+			selectedVariable = previousVariableId && findVariable(previousVariableId)
+				? previousVariableId
+				: null;
+			selectedLink = previousLinkId && links().some(link => link.id === previousLinkId)
+				? previousLinkId
+				: null;
             drag = null;
 
             sendSelection();
@@ -3795,9 +3936,9 @@
             if (firstLoad) fit();
             else draw();
 
-			if (refreshedAnimationStates) {
+			if (refreshedAnimationStates || refreshedArrayPins) {
 				scheduleSave();
-				status('Animation State nodes refreshed · ' + message.filename);
+				status('Node types refreshed · ' + message.filename);
 			} else {
 				status('Ready · ' + message.filename);
 			}

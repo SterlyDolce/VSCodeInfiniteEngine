@@ -836,7 +836,7 @@ function getDataTypes() {
 }
 
 function renderTypeOptions(selectedType) {
-	const types = [...getDataTypes()];
+	const types = getDataTypes().filter(item => item.type !== 'array');
 
 	if (
 		selectedType &&
@@ -903,13 +903,22 @@ function renderGraphProperties() {
 	const rows = [];
 
 	if (selection.type === 'uiCanvas') {
+		rows.push(createInput(null, 'type', value.type ?? 'menu', {
+			type: 'enum',
+			options: ['menu', 'hud']
+		}));
 		rows.push(createInput(null, 'width', value.width, 'number'));
 		rows.push(createInput(null, 'height', value.height, 'number'));
-		rows.push(createInput(null, 'background', value.background, 'color'));
 	}
 
 	if (selection.type === 'uiElement') {
 		rows.push(createInput(null, 'name', value.name, 'string'));
+		if (value.type === 'panel') {
+			rows.push(createInput(null, 'display', value.display ?? 'block', {
+				type: 'enum',
+				options: ['none', 'block', 'row', 'column', 'grid']
+			}));
+		}
 		rows.push(createInput(null, 'x', value.x, 'number'));
 		rows.push(createInput(null, 'y', value.y, 'number'));
 		rows.push(createInput(null, 'width', value.width, 'number'));
@@ -918,17 +927,65 @@ function renderGraphProperties() {
 			rows.push(createInput(null, 'text', value.text, 'string'));
 		}
 		if (value.type === 'image') {
-			rows.push(createInput(null, 'source', value.source ?? '', 'string'));
+			rows.push(createInput(null, 'source', value.source ?? null, 'texture'));
 		}
 		rows.push(createInput(null, 'color', value.color, 'color'));
-		rows.push(createInput(null, 'background', value.background, 'string'));
-		rows.push(createInput(null, 'fontSize', value.fontSize, 'number'));
+		rows.push(createInput(null, 'background', value.background, {
+			type: 'color',
+			allowTransparent: true
+		}));
+		if (!['panel', 'image'].includes(value.type)) {
+			rows.push(createInput(null, 'fontSize', value.fontSize, 'number'));
+			rows.push(createInput(null, 'fontFamily', value.fontFamily ?? 'sans-serif', {
+				type: 'enum',
+				options: [
+					'sans-serif', 'serif', 'monospace', 'system-ui',
+					'Arial', 'Verdana', 'Georgia',
+					...availableAssets
+						.filter(asset => asset.type === 'font')
+						.map(asset => asset.name)
+				]
+			}));
+			rows.push(createInput(null, 'fontWeight', value.fontWeight ?? '400', {
+				type: 'enum',
+				options: ['300', '400', '500', '600', '700', '800', '900']
+			}));
+			rows.push(createInput(null, 'fontStyle', value.fontStyle ?? 'normal', {
+				type: 'enum',
+				options: ['normal', 'italic']
+			}));
+			rows.push(createInput(null, 'textAlign', value.textAlign ?? 'center', {
+				type: 'enum',
+				options: ['left', 'center', 'right']
+			}));
+			rows.push(createInput(null, 'verticalAlign', value.verticalAlign ?? 'middle', {
+				type: 'enum',
+				options: ['top', 'middle', 'bottom']
+			}));
+		}
 		rows.push(createInput(null, 'radius', value.radius, 'number'));
 		rows.push(createInput(null, 'opacity', value.opacity, 'number'));
+		if (value.type === 'button') {
+			rows.push(createInput(null, 'enabled', value.enabled ?? true, 'boolean'));
+			rows.push(createInput(null, 'previewState', value.previewState ?? 'normal', {
+				type: 'enum',
+				options: ['normal', 'hover', 'pressed', 'disabled']
+			}));
+			for (const state of ['hover', 'pressed', 'disabled']) {
+				rows.push(createInput(null, `${state}Color`, value[`${state}Color`] ?? value.color, 'color'));
+				rows.push(createInput(null, `${state}Background`, value[`${state}Background`] ?? value.background, {
+					type: 'color',
+					allowTransparent: true
+				}));
+			}
+		}
+		rows.push(renderUIEvents(value.events ?? []));
 		rows.push('<button type="button" id="delete-ui-element" class="danger"><ion-icon name="trash-outline"></ion-icon> Delete Widget</button>');
 	}
 
 	if (selection.type === 'variable') {
+		const isArray = value.isArray === true || value.type === 'array';
+		const baseType = value.type === 'array' ? 'any' : value.type;
 		rows.push(createInput(null, 'name', value.name, 'string'));
 
 		rows.push(`
@@ -936,13 +993,14 @@ function renderGraphProperties() {
                  data-type="string">
                 <div class="property-label">Type</div>
                 <select class="graph-type-select">
-                    ${renderTypeOptions(value.type)}
+                    ${renderTypeOptions(baseType)}
                 </select>
             </div>
         `);
+		rows.push(createInput(null, 'isArray', isArray, 'boolean'));
 
 		rows.push(createInput(
-			null, 'value', value.value, { type: value.type }
+			null, 'value', value.value, { type: baseType, isArray }
 		));
 	}
 
@@ -995,7 +1053,8 @@ function renderGraphProperties() {
 					...pinSchema,
 					type: pinSchema.type ?? pin.type,
 					itemType: pin.itemType ?? pinSchema.itemType,
-					assetType: pin.assetType ?? pinSchema.assetType
+					assetType: pin.assetType ?? pinSchema.assetType,
+					isArray: pin.isArray === true || pinSchema.isArray === true
 				}
 			);
 
@@ -1088,11 +1147,68 @@ function renderGraphProperties() {
     `;
 
 	bindGraphPropertyInputs();
+	bindUIEventInputs();
 	properties.querySelector('#delete-ui-element')?.addEventListener('click', () => {
 		postPropertyUpdate(selection.type, selection.id, '__delete', true);
 	});
 	bindFunctionParameterInputs();
 	bindSwitchCaseInputs();
+}
+
+function renderUIEvents(events) {
+	return `
+		<div class="ui-events-editor">
+			<div class="section-title">Events</div>
+			${events.map(event => `
+				<div class="ui-event-row" data-event-id="${escapeHtml(event.id)}">
+					<input class="ui-event-name" type="text" value="${escapeHtml(event.name ?? '')}" placeholder="Event name">
+					<select class="ui-event-type">
+						${['clicked', 'pressed', 'released', 'hovered', 'changed'].map(type =>
+							`<option value="${type}" ${event.type === type ? 'selected' : ''}>${type[0].toUpperCase() + type.slice(1)}</option>`
+						).join('')}
+					</select>
+					<button type="button" class="ui-event-remove" title="Remove event"><ion-icon name="close"></ion-icon></button>
+				</div>
+			`).join('')}
+			<button type="button" class="ui-event-add">+ Add Event Listener</button>
+		</div>
+	`;
+}
+
+function bindUIEventInputs() {
+	const selection = currentGraphSelection;
+	if (selection?.type !== 'uiElement') return;
+	const editor = properties.querySelector('.ui-events-editor');
+	if (!editor) return;
+	const events = structuredClone(selection.value.events ?? []);
+	const send = () => postPropertyUpdate(selection.type, selection.id, 'events', events);
+
+	editor.querySelector('.ui-event-add')?.addEventListener('click', () => {
+		events.push({
+			id: crypto.randomUUID(),
+			name: `On ${selection.name} Clicked`,
+			type: 'clicked'
+		});
+		send();
+	});
+
+	for (const row of editor.querySelectorAll('.ui-event-row')) {
+		const event = events.find(item => item.id === row.dataset.eventId);
+		if (!event) continue;
+		row.querySelector('.ui-event-name')?.addEventListener('change', input => {
+			event.name = input.target.value.trim() || 'UI Event';
+			send();
+		});
+		row.querySelector('.ui-event-type')?.addEventListener('change', input => {
+			event.type = input.target.value;
+			send();
+		});
+		row.querySelector('.ui-event-remove')?.addEventListener('click', () => {
+			const index = events.findIndex(item => item.id === event.id);
+			if (index >= 0) events.splice(index, 1);
+			send();
+		});
+	}
 }
 
 
@@ -1181,8 +1297,10 @@ function renderFunctionParameters(parameters, direction) {
 
                     <select class="parameter-type"
                         aria-label="Parameter type">
-                        ${renderTypeOptions(parameter.type)}
+                        ${renderTypeOptions(parameter.type === 'array' ? 'any' : parameter.type)}
                     </select>
+
+					<label class="parameter-array"><input type="checkbox" class="parameter-is-array" ${(parameter.isArray === true || parameter.type === 'array') ? 'checked' : ''}> Array</label>
 
                     <button type="button" class="parameter-delete"
                         title="Remove parameter"><ion-icon name="close"></ion-icon></button>
@@ -1234,6 +1352,13 @@ function bindFunctionParameterInputs() {
 					});
 				});
 
+			row.querySelector('.parameter-is-array')
+				.addEventListener('change', event => {
+					send('update', direction, id, {
+						isArray: event.target.checked
+					});
+				});
+
 			row.querySelector('.parameter-delete')
 				.addEventListener('click', () => {
 					send('delete', direction, id);
@@ -1258,6 +1383,7 @@ function bindGraphPropertyInputs() {
 
 		const type = row.dataset.type;
 		const pinId = row.dataset.graphPinId ?? null;
+		const isArray = row.dataset.isArray === 'true';
 
 		const send = value => {
 			postPropertyUpdate(
@@ -1272,21 +1398,22 @@ function bindGraphPropertyInputs() {
 			);
 		};
 
-		if (type === 'array' && pinId) {
-			const container = row.querySelector('.asset-array');
+		const transparent = row.querySelector('.color-transparent');
+		if (transparent) {
+			transparent.addEventListener('click', () => send('transparent'));
+		}
+
+		if (isArray && pinId) {
+			const container = row.querySelector('.typed-array');
 
 			if (!container) continue;
 
 			const itemType = container.dataset.itemType;
-
-			const readValues = () => [
-				...container.querySelectorAll('.asset-select')
-			]
-				.map(select => select.value || null)
-				.filter(Boolean);
+			const readValues = () => readTypedArray(container)
+				.filter(value => value !== undefined && value !== null);
 
 			container.addEventListener('change', event => {
-				if (event.target.matches('.asset-select')) {
+				if (event.target.matches('input, select')) {
 					send(readValues());
 				}
 			});
@@ -1309,16 +1436,11 @@ function bindGraphPropertyInputs() {
 				}
 
 				if (event.target.closest('.asset-add')) {
-					const firstAsset = availableAssets.find(
-						asset => asset.type === itemType
-					);
-
-					if (!firstAsset) return;
-
-					send([
-						...readValues(),
-						firstAsset.id
-					]);
+					const asset = availableAssets.find(entry => entry.type === itemType);
+					const value = asset?.id ?? getDefaultArrayValue(itemType);
+					if (value !== undefined && value !== null) {
+						send([...readValues(), value]);
+					}
 				}
 			});
 
@@ -1356,7 +1478,7 @@ function bindGraphPropertyInputs() {
 			continue;
 		}
 
-		const inputs = [...row.querySelectorAll('input')];
+		const inputs = [...row.querySelectorAll('input, textarea')];
 
 		for (const input of inputs) {
 			input.addEventListener('change', () => {
@@ -1378,6 +1500,12 @@ function bindGraphPropertyInputs() {
 					if (!Number.isFinite(value)) return;
 				} else if (type === 'boolean') {
 					value = input.checked;
+				} else if (['any', 'object', 'array'].includes(type)) {
+					try {
+						value = JSON.parse(input.value);
+					} catch {
+						return;
+					}
 				} else {
 					value = input.value;
 				}
@@ -1666,12 +1794,23 @@ function createInput(component, name, value, schema) {
 		);
 	} else {
 		switch (type) {
-			case 'color':
+			case 'color': {
+				const colorValue = /^#[0-9a-f]{6}$/i.test(String(value ?? ''))
+					? value
+					: '#000000';
 				input = `
-                    <input type="color"
-                        value="${escapeHtml(value ?? '#ffffff')}">
+					<div class="color-value-controls">
+						<input type="color"
+							value="${escapeHtml(colorValue)}">
+						${schema?.allowTransparent ? `
+							<button type="button" class="color-transparent ${value === 'transparent' ? 'active' : ''}">
+								Transparent
+							</button>
+						` : ''}
+					</div>
                 `;
 				break;
+			}
 
 			case 'number':
 				input = `
@@ -1693,6 +1832,12 @@ function createInput(component, name, value, schema) {
                     <input type="text"
                         value="${escapeHtml(value ?? '')}">
                 `;
+				break;
+
+			case 'any':
+			case 'object':
+			case 'array':
+				input = `<textarea class="json-value" rows="4">${escapeHtml(JSON.stringify(value ?? (type === 'array' ? [] : type === 'object' ? {} : null), null, 2))}</textarea>`;
 				break;
 
 			case 'enum': {
@@ -1765,21 +1910,20 @@ function createInput(component, name, value, schema) {
 			case 'script':
 			case 'texture':
 			case 'terrain':
+			case 'animation':
+			case 'ui':
 				input = createAssetSelect(value, type);
 				break;
 
-			// Compatibility with existing graph nodes.
-			case 'array': {
-				const itemType = schema?.itemType === 'asset'
-					? schema.assetType
-					: schema?.itemType;
-
-				input = createAssetArray(
-					Array.isArray(value) ? value : [],
-					itemType
-				);
+			case 'animationState':
+			case 'animationstate':
+				input = createAssetSelect(value, 'animationState');
 				break;
-			}
+
+			case 'component':
+			case 'transformable':
+				input = '<input type="text" value="Runtime reference" disabled>';
+				break;
 
 			default:
 				return '';
@@ -1813,7 +1957,12 @@ function createTypedArray(values, type, schema = {}) {
 		'texture',
 		'actor',
 		'mesh',
-		'script'
+		'script',
+		'terrain',
+		'animation',
+		'animationState',
+		'animationstate',
+		'ui'
 	];
 
 	const itemType = type === 'asset'
@@ -1822,7 +1971,10 @@ function createTypedArray(values, type, schema = {}) {
 
 	function createItemControl(value) {
 		if (assetTypes.includes(itemType)) {
-			return createAssetSelect(value, itemType);
+			return createAssetSelect(
+				value,
+				itemType === 'animationstate' ? 'animationState' : itemType
+			);
 		}
 
 		switch (itemType) {
@@ -1949,6 +2101,10 @@ function getDefaultArrayValue(type, schema = {}) {
 		case 'mesh':
 		case 'script':
 		case 'terrain':
+		case 'animation':
+		case 'animationState':
+		case 'animationstate':
+		case 'ui':
 			return null;
 
 		default:

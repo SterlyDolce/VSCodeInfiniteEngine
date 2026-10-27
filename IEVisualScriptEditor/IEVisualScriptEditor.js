@@ -55,6 +55,16 @@ class IEVisualScriptEditor {
             pathToFileURL(animationNodesPath).href
         );
 
+        const uiEventNodesPath = path.join(
+            this.context.extensionPath,
+            'IESceneEditor',
+            'Nodes',
+            'IEUIEventNodes.mjs'
+        );
+        const { registerUIEventNodes } = await import(
+            pathToFileURL(uiEventNodesPath).href
+        );
+
         const createProjectRegistry = async () => {
             const registry = new IENodeRegistry();
 
@@ -85,6 +95,8 @@ class IEVisualScriptEditor {
                 manager,
                 registry
             );
+
+            await registerUIEventNodes(manager, registry);
 
             await registerCustomNodes(registry, workspace);
 
@@ -138,6 +150,14 @@ class IEVisualScriptEditor {
 
                 const manager = new IEAssetManager(workspace.uri.fsPath);
                 await manager.scan();
+				const sceneUris = await vscode.workspace.findFiles(
+					new vscode.RelativePattern(workspace, '**/*.iescene')
+				);
+				const scenes = sceneUris.map(uri => ({
+					id: uri.toString(),
+					type: 'scene',
+					name: path.basename(uri.fsPath, path.extname(uri.fsPath))
+				}));
 
                 // const allAssets = manager.getAssets();
                 const actors = manager.getAssets('actor');
@@ -164,7 +184,7 @@ class IEVisualScriptEditor {
                 });
                 await panel.webview.postMessage({
                     type: 'assetIndex',
-                    assets: manager.getAssets()
+					assets: [...manager.getAssets(), ...scenes]
                 });
             } catch (error) {
                 console.error('[IE] Failed to load Actor Assets:', error);
@@ -618,6 +638,21 @@ class IEVisualScriptEditor {
 
                 for (const graph of graphs) {
                     for (const variable of graph.variables ?? []) {
+						if (variable.type === 'array') {
+							variable.type = 'any';
+							variable.isArray = true;
+						}
+
+						if (variable.isArray === true) {
+							if (!Array.isArray(variable.value)) {
+								throw new TypeError(`Variable ${variable.name} must be an array`);
+							}
+							variable.value = variable.value.map(item =>
+								IETypeRegistry.create(variable.type, item).getValue()
+							);
+							continue;
+						}
+
                         const typedValue = IETypeRegistry.create(
                             variable.type,
                             variable.value
@@ -707,6 +742,15 @@ class IEVisualScriptEditor {
 		await Promise.all(
 			[...(IEVisualScriptEditor.panels?.values() ?? [])].map(panel =>
 				panel.webview.postMessage({ type: 'runtimeEvent', event })
+			)
+		);
+	}
+
+	static async broadcastRuntimeEvents(events) {
+		if (!events.length) return;
+		await Promise.all(
+			[...(IEVisualScriptEditor.panels?.values() ?? [])].map(panel =>
+				panel.webview.postMessage({ type: 'runtimeEventBatch', events })
 			)
 		);
 	}

@@ -1,8 +1,9 @@
 // @ts-nocheck
 import { nodeRegistry } from '../../IENodeRegistry.mjs';
+import { copyRuntimeArray, copyRuntimeValue } from '../RuntimeValue.mjs';
 
 const array = value => Array.isArray(value) ? value : [];
-const clone = value => value === undefined ? null : structuredClone(value);
+const clone = copyRuntimeValue;
 
 nodeRegistry.register('array.create', {
     name: 'Create Array', category: 'Array',
@@ -22,6 +23,27 @@ nodeRegistry.register('array.get', {
     name: 'Get Array Item', category: 'Array',
     inputs: [{ name: 'Array', type: 'array', default: [] }, { name: 'Index', type: 'number', default: 0 }],
     outputs: [{ name: 'Value', type: 'any' }, { name: 'Valid', type: 'boolean' }],
+	onConnect({ node, input, output }) {
+		if (input?.name !== 'Array' || output?.type !== 'array') return;
+		const itemType = output.itemType ?? 'any';
+		const valuePin = node.pins?.find(pin =>
+			pin.direction === 'output' && pin.name === 'Value'
+		);
+		if (valuePin) {
+			valuePin.type = itemType;
+			valuePin.itemType = itemType;
+		}
+	},
+	onDisconnect({ node, input }) {
+		if (input?.name !== 'Array') return;
+		const valuePin = node.pins?.find(pin =>
+			pin.direction === 'output' && pin.name === 'Value'
+		);
+		if (valuePin) {
+			valuePin.type = 'any';
+			delete valuePin.itemType;
+		}
+	},
     evaluate({ output, readInput }) {
         const source = array(readInput('Array'));
         const index = Math.trunc(Number(readInput('Index')));
@@ -36,7 +58,7 @@ nodeRegistry.register('array.set', {
     inputs: [{ name: 'Array', type: 'array', default: [] }, { name: 'Index', type: 'number', default: 0 }, { name: 'Value', type: 'any', default: null }],
     outputs: [{ name: 'Array', type: 'array' }],
     evaluate({ readInput }) {
-        const result = structuredClone(array(readInput('Array')));
+        const result = copyRuntimeArray(readInput('Array'));
         const index = Math.trunc(Number(readInput('Index')));
         if (index >= 0) result[index] = clone(readInput('Value'));
         return result;
@@ -52,7 +74,7 @@ for (const [type, name, atStart] of [
         inputs: [{ name: 'Array', type: 'array', default: [] }, { name: 'Value', type: 'any', default: null }],
         outputs: [{ name: 'Array', type: 'array' }],
         evaluate({ readInput }) {
-            const result = structuredClone(array(readInput('Array')));
+            const result = copyRuntimeArray(readInput('Array'));
             result[atStart ? 'unshift' : 'push'](clone(readInput('Value')));
             return result;
         }
@@ -68,7 +90,7 @@ for (const [type, name, atStart] of [
         inputs: [{ name: 'Array', type: 'array', default: [] }],
         outputs: [{ name: 'Array', type: 'array' }, { name: 'Value', type: 'any' }],
         evaluate({ output, readInput }) {
-            const result = structuredClone(array(readInput('Array')));
+            const result = copyRuntimeArray(readInput('Array'));
             const value = result[atStart ? 'shift' : 'pop']();
             if (output === 'Array') return result;
             if (output === 'Value') return clone(value);
@@ -81,14 +103,14 @@ nodeRegistry.register('array.concat', {
     name: 'Concat Arrays', category: 'Array',
     inputs: [{ name: 'A', type: 'array', default: [] }, { name: 'B', type: 'array', default: [] }],
     outputs: [{ name: 'Array', type: 'array' }],
-    evaluate({ readInput }) { return structuredClone([...array(readInput('A')), ...array(readInput('B'))]); }
+    evaluate({ readInput }) { return copyRuntimeArray([...array(readInput('A')), ...array(readInput('B'))]); }
 });
 
 nodeRegistry.register('array.slice', {
     name: 'Slice Array', category: 'Array',
     inputs: [{ name: 'Array', type: 'array', default: [] }, { name: 'Start', type: 'number', default: 0 }, { name: 'End', type: 'number', default: 1 }],
     outputs: [{ name: 'Array', type: 'array' }],
-    evaluate({ readInput }) { return structuredClone(array(readInput('Array')).slice(Math.trunc(Number(readInput('Start'))), Math.trunc(Number(readInput('End'))))); }
+    evaluate({ readInput }) { return copyRuntimeArray(array(readInput('Array')).slice(Math.trunc(Number(readInput('Start'))), Math.trunc(Number(readInput('End'))))); }
 });
 
 for (const [type, name, outputName, operation] of [
@@ -116,7 +138,7 @@ for (const [type, name, operation] of [
 ]) {
     nodeRegistry.register(type, {
         name, category: 'Array', inputs: [{ name: 'Array', type: 'array', default: [] }], outputs: [{ name: 'Array', type: 'array' }],
-        evaluate({ readInput }) { return operation(structuredClone(array(readInput('Array')))); }
+        evaluate({ readInput }) { return operation(copyRuntimeArray(readInput('Array'))); }
     });
 }
 
@@ -126,6 +148,6 @@ nodeRegistry.register('array.sortNumbers', {
     outputs: [{ name: 'Array', type: 'array' }],
     evaluate({ readInput }) {
         const direction = readInput('Descending') === true ? -1 : 1;
-        return structuredClone(array(readInput('Array'))).sort((a, b) => (Number(a) - Number(b)) * direction);
+        return copyRuntimeArray(readInput('Array')).sort((a, b) => (Number(a) - Number(b)) * direction);
     }
 });
