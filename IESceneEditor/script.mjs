@@ -3174,6 +3174,11 @@ function updateViewGizmo() {
 
 // Play Mode
 
+function setEditorViewportHelpersVisible(visible) {
+	viewportToolbar.style.display = visible ? '' : 'none';
+	viewGizmoViewport.style.display = visible ? '' : 'none';
+}
+
 async function beginPlay(sceneData) {
 	disposeGameplayRuntime();
 	runtimeErrorReported = false;
@@ -3220,7 +3225,7 @@ async function beginPlay(sceneData) {
 	engine.setInputMode('Game Only');
 
 	previewViewport.classList.remove('visible');
-	viewGizmoViewport.style.display = 'none';
+	setEditorViewportHelpersVisible(false);
 
 	gameplayCamera = findActiveGameplayCamera();
 
@@ -3330,7 +3335,7 @@ function disposeGameplayRuntime() {
 	runtimeErrorReported = false;
 
 
-	viewGizmoViewport.style.display = '';
+	setEditorViewportHelpersVisible(true);
 
 	if (selectedActorObject) {
 		transformControls.attach(
